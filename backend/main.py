@@ -4,6 +4,7 @@ import asyncio
 import logging
 from .services.ingestion import GexIngestionService
 from .services.basis import BasisService
+from .services.analytics.service import GexAnalyticsService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -23,10 +24,12 @@ app.add_middleware(
 state = {
     "raw_data": {},
     "basis": {},
+    "analytics": {},
     "is_running": False
 }
 
 ingestion_service = GexIngestionService("SPY")
+analytics_service = GexAnalyticsService()
 
 async def update_data_loop():
     """Background loop to refresh market data."""
@@ -41,6 +44,12 @@ async def update_data_loop():
             # 2. Fetch basis
             basis_data = BasisService.get_futures_basis("SPY")
             state["basis"] = basis_data
+
+            # 3. Running Analytics
+            if raw_data.get("data"):
+                logger.info("Running quant analytics suite...")
+                analytics = analytics_service.process_chain(raw_data)
+                state["analytics"] = analytics
             
             logger.info("Background update successful.")
         except Exception as e:
@@ -69,6 +78,11 @@ async def get_raw_metrics():
         "metrics": state["raw_data"],
         "basis": state["basis"]
     }
+
+@app.get("/api/metrics/analytics")
+async def get_analytics_metrics():
+    """Returns the aggregated GEX/DEX/Vanna exposures."""
+    return state["analytics"]
 
 if __name__ == "__main__":
     import uvicorn
