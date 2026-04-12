@@ -90,13 +90,13 @@ class GexAnalyticsService:
         chex_all = oi * higher['charm'] * 100 * spot
         df_raw['chex'] = np.where(is_call, chex_all, -chex_all)
 
-        # Store results back to DF
         df_raw['delta'] = delta
         df_raw['gamma'] = gamma
         df_raw['vega'] = vega
         df_raw['theta'] = theta
         df_raw['vanna'] = higher['vanna']
         df_raw['charm'] = higher['charm']
+        df_raw['iv'] = sigma
         
         # Aggregation by Strike
         agg = df_raw.groupby('strike').agg({
@@ -105,13 +105,24 @@ class GexAnalyticsService:
             'vex': 'sum',
             'chex': 'sum',
             'openInterest': 'sum',
-            'volume': 'sum'
+            'volume': 'sum',
+            'iv': 'mean' # Skew visualization
         }).reset_index()
         
         # Metrics summary
         total_gex = df_raw['gex'].sum()
         total_dex = df_raw['dex'].sum()
         
+        # Metadata for Surface
+        # Group by Expiry then Strike to build matrix
+        pivoted = df_raw.pivot_table(index='expiry', columns='strike', values='iv', aggfunc='mean').fillna(0)
+        
+        surface = {
+            "expiries": pivoted.index.tolist(),
+            "strikes": pivoted.columns.tolist(),
+            "matrix": pivoted.values.tolist()
+        }
+
         return {
             "summary": {
                 "totalNetGex": total_gex,
@@ -120,5 +131,7 @@ class GexAnalyticsService:
                 "riskFreeRate": r,
                 "timestamp": datetime.now().isoformat()
             },
-            "strikes": agg.to_dict(orient="records")
+            "strikes": agg.to_dict(orient="records"),
+            "surface": surface,
+            "raw": df_raw.to_dict(orient="records")
         }
