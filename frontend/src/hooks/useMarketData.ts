@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, fetchAnalytics, fetchHealth, fetchRawMetrics } from '../lib/api';
+import { ApiError, fetchAnalytics, fetchBasisMetrics, fetchHealth } from '../lib/api';
 import type { AnalyticsResponse, BasisData, HealthResponse } from '../types/analytics';
 
 type Ticker = 'SPY' | 'QQQ';
@@ -21,6 +21,7 @@ interface UseMarketDataResult {
 
 const POLL_INTERVAL_MS = 15000;
 const STALE_AFTER_MS = 45000;
+const AGE_TICK_MS = 5000;
 
 function getSessionMode(): string {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -49,8 +50,12 @@ export function useMarketData(ticker: Ticker): UseMarketDataResult {
   const [ageMs, setAgeMs] = useState<number | null>(null);
   const [pollingPaused, setPollingPaused] = useState(false);
   const mountedRef = useRef(true);
+  // Ref so the ageTimer interval always reads the latest timestamp without
+  // needing to re-register the interval on every analytics update.
+  const lastUpdatedRef = useRef<string | null>(null);
 
   const lastUpdated = analytics?.summary?.timestamp ?? null;
+  lastUpdatedRef.current = lastUpdated;
 
   const refresh = async () => {
     if (!mountedRef.current) return;
@@ -59,25 +64,29 @@ export function useMarketData(ticker: Ticker): UseMarketDataResult {
     setStatus(hasExistingData ? 'stale' : 'loading');
 
     try {
-      const [healthData, analyticsData, rawMetrics] = await Promise.all([
-        fetchHealth(),
+      const [healthResult, analyticsData, basisMetrics] = await Promise.all([
+        fetchHealth().catch(() => null),
         fetchAnalytics(ticker),
-        fetchRawMetrics(),
+        fetchBasisMetrics(),
       ]);
 
       if (!mountedRef.current) return;
 
-      setHealth(healthData);
+      if (healthResult) setHealth(healthResult);
       setAnalytics(analyticsData);
-      setBasis(rawMetrics.basis?.[ticker] ?? null);
+      setBasis(basisMetrics.basis?.[ticker] ?? null);
       setError(null);
       setStatus('ready');
       setAgeMs(analyticsData.summary?.timestamp ? Date.now() - new Date(analyticsData.summary.timestamp).getTime() : null);
     } catch (err) {
       if (!mountedRef.current) return;
 
-      if (err instanceof ApiError && err.status === 503) {
-        setStatus('loading');
+      const isNetworkError = err instanceof TypeError && err.message === 'Failed to fetch';
+      const is503 = err instanceof ApiError && err.status === 503;
+
+      if (isNetworkError || is503) {
+        // Backend is still starting up — keep loading state, keep polling.
+        if (!hasExistingData) setStatus('loading');
         return;
       }
 
@@ -107,17 +116,18 @@ export function useMarketData(ticker: Ticker): UseMarketDataResult {
 
     const ageTimer = window.setInterval(() => {
       if (!mountedRef.current) return;
-      if (!lastUpdated) {
+      const ts = lastUpdatedRef.current;
+      if (!ts) {
         setAgeMs(null);
         return;
       }
 
-      const nextAge = Date.now() - new Date(lastUpdated).getTime();
+      const nextAge = Date.now() - new Date(ts).getTime();
       setAgeMs(nextAge);
       if (nextAge > STALE_AFTER_MS) {
-        setStatus((current) => (current === 'ready' ? 'stale' : current));
+        setStatus((current) => (current === 'ready' || current === 'loading' ? 'stale' : current));
       }
-    }, 1000);
+    }, AGE_TICK_MS);
 
     return () => {
       mountedRef.current = false;

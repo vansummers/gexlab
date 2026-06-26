@@ -1,12 +1,21 @@
 {
   "permissions": {
     "allow": [
+      "Bash(*)",
+      "Edit(*)",
+      "Write(*)",
+      "Read(*)",
+      "Glob(*)",
+      "Grep(*)",
       "Bash(git clone *)",
       "Read(//c/Users/pranav/.claude/skills/humanizer/**)",
       "Bash(claude plugin *)",
       "Skill(update-config)",
       "Skill(update-config:*)",
-      "Bash(npx skills *)"
+      "Bash(npx skills *)",
+      "Skill(fewer-permission-prompts)",
+      "Skill(fewer-permission-prompts:*)",
+      "Bash(node -e ' *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\pranav\\.claude"

@@ -203,4 +203,4 @@ class MacroEventsService:
             "timestamp": self._cache["timestamp"].isoformat() if self._cache["timestamp"] else None,
             "events": self._cache["events"],
         }
-        self.cache_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self.cache_path.write_text(json.dumps(payload), encoding="utf-8")

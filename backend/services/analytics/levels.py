@@ -273,25 +273,28 @@ class LevelIntelligenceService:
     def calculate_max_pain(raw_data: List[Dict[str, Any]]) -> float:
         """
         Calculate Max Pain level (strike where total intrinsic value is minimized).
+        Vectorized: O(n*m) numpy broadcasting instead of O(n²) Python loop.
         """
         df = pd.DataFrame(raw_data)
         if df.empty:
             return 0.0
 
-        strikes = df['strike'].unique()
-        pain_values = []
+        df['openInterest'] = df['openInterest'].fillna(0)
+        calls = df[df['type'] == 'call']
+        puts = df[df['type'] == 'put']
+        strikes = np.sort(df['strike'].unique())
 
-        for s in strikes:
-            calls = df[df['type'] == 'call']
-            puts = df[df['type'] == 'put']
-            
-            call_pain = (np.maximum(0, s - calls['strike'].values) * calls['openInterest'].fillna(0).values).sum()
-            put_pain = (np.maximum(0, puts['strike'].values - s) * puts['openInterest'].fillna(0).values).sum()
-            
-            pain_values.append(call_pain + put_pain)
+        # Broadcast: strikes (m,) vs contract strikes (n,) → (m, n) matrices
+        call_strikes = calls['strike'].values[np.newaxis, :]   # (1, n_calls)
+        call_oi = calls['openInterest'].values[np.newaxis, :]
+        put_strikes = puts['strike'].values[np.newaxis, :]     # (1, n_puts)
+        put_oi = puts['openInterest'].values[np.newaxis, :]
+        s = strikes[:, np.newaxis]                             # (m, 1)
 
-        max_pain_strike = strikes[np.argmin(pain_values)]
-        return float(max_pain_strike)
+        pain = (np.maximum(0, s - call_strikes) * call_oi).sum(axis=1) + \
+               (np.maximum(0, put_strikes - s) * put_oi).sum(axis=1)
+
+        return float(strikes[np.argmin(pain)])
 
     def get_market_levels(self, analytics_data: Dict[str, Any], raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """

@@ -83,13 +83,13 @@ export function PanelShell({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[2.3rem] border border-[#e6dfd3] bg-white/84 p-6 shadow-[0_18px_55px_rgba(45,33,17,0.05)] dark:border-white/10 dark:bg-white/6 dark:shadow-[0_18px_55px_rgba(0,0,0,0.28)]">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+    <section className="rounded-2xl border border-[#e6dfd3] bg-white/84 p-5 shadow-[0_8px_30px_rgba(45,33,17,0.04)] dark:border-white/10 dark:bg-white/6 dark:shadow-[0_8px_30px_rgba(0,0,0,0.22)]">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-light tracking-[-0.03em] text-[#1D1D1F] dark:text-[#f5efe3]">{title}</h2>
-          <p className="mt-1 text-[11px] font-medium font-mono tracking-[0.06em] opacity-60 text-[#7f7261] dark:text-[#b5a998]">{subtitle}</p>
+          <h2 className="text-base font-medium tracking-[-0.02em] text-[#1D1D1F] dark:text-[#f5efe3]">{title}</h2>
+          <p className="mt-0.5 text-[11px] font-medium font-mono tracking-[0.04em] opacity-55 text-[#7f7261] dark:text-[#b5a998]">{subtitle}</p>
         </div>
-        <div className="rounded-full border border-[#e7dfd2] bg-[#faf7f1] px-3 py-1.5 text-[10px] uppercase tracking-[0.22em] text-[#7d705e] dark:border-white/10 dark:bg-white/6 dark:text-[#c5baab]">
+        <div className="rounded-full border border-[#e7dfd2] bg-[#faf7f1] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-[#7d705e] dark:border-white/10 dark:bg-white/6 dark:text-[#c5baab]">
           {status}
         </div>
       </div>
@@ -100,7 +100,7 @@ export function PanelShell({
 
 export function EmptyPanel({ title, detail }: { title: string; detail: string }) {
   return (
-    <div className="grid min-h-[240px] place-items-center rounded-[1.8rem] border border-dashed border-[#dfd7c8] bg-[#fbf8f2] p-6 text-center dark:border-white/12 dark:bg-white/4">
+    <div className="grid min-h-[200px] place-items-center rounded-xl border border-dashed border-[#dfd7c8] bg-[#fbf8f2] p-6 text-center dark:border-white/12 dark:bg-white/4">
       <div className="max-w-sm">
         <p className="text-[10px] uppercase tracking-[0.32em] font-black text-[#8b7e6b] dark:text-[#c4b7a4]">{title}</p>
         <p className="mt-3 text-sm leading-relaxed text-[#766c5e] dark:text-[#a79b8b]">{detail}</p>
@@ -149,12 +149,12 @@ export function LevelPill({
   };
 
   return (
-    <div className={`rounded-[1.35rem] border px-4 py-3 ${toneMap[tone]}`}>
+    <div className={`rounded-xl border px-3 py-2.5 ${toneMap[tone]}`}>
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[10px] uppercase tracking-[0.24em]">{label}</p>
-        <span className="text-[10px] uppercase tracking-[0.22em] opacity-75">{distance}</span>
+        <p className="text-[10px] uppercase tracking-[0.2em]">{label}</p>
+        <span className="text-[10px] uppercase tracking-[0.18em] opacity-75">{distance}</span>
       </div>
-      <p className="mt-2 text-xl font-light tracking-[-0.04em] tabular-nums">{formatCurrency(value)}</p>
+      <p className="mt-1.5 text-lg font-light tracking-[-0.04em] tabular-nums">{formatCurrency(value)}</p>
     </div>
   );
 }
@@ -178,10 +178,10 @@ export function InsightChip({
   };
 
   return (
-    <div className={`rounded-[1.4rem] border p-4 ${toneMap[tone]}`}>
-      <p className="text-[10px] font-black uppercase tracking-[0.28em]">{label}</p>
-      <p className="mt-2 text-lg font-light tracking-[-0.03em]">{value}</p>
-      <p className="mt-1 text-[12px] leading-relaxed opacity-80">{hint}</p>
+    <div className={`rounded-xl border p-3 ${toneMap[tone]}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.22em]">{label}</p>
+      <p className="mt-1.5 text-base font-light tracking-[-0.02em]">{value}</p>
+      <p className="mt-1 text-[11px] leading-relaxed opacity-80">{hint}</p>
     </div>
   );
 }
@@ -202,13 +202,13 @@ export function AristocratMetric({
   const display = valueLabel ?? formatCompactNumber(value);
 
   return (
-    <div className="rounded-[2rem] border border-[#e6dfd3] bg-white/84 p-6 shadow-[0_18px_55px_rgba(45,33,17,0.05)] transition-all duration-300 hover:shadow-[0_24px_64px_rgba(45,33,17,0.09)] hover:-translate-y-px dark:border-white/10 dark:bg-white/6 dark:shadow-[0_18px_55px_rgba(0,0,0,0.28)] dark:hover:shadow-[0_24px_64px_rgba(0,0,0,0.4)]">
+    <div className="rounded-2xl border border-[#e6dfd3] bg-white/84 p-5 shadow-[0_4px_16px_rgba(45,33,17,0.04)] dark:border-white/10 dark:bg-white/6 dark:shadow-[0_4px_16px_rgba(0,0,0,0.22)]">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-[#847766] dark:text-[#b7ab9a]" style={{ textWrap: 'balance' } as React.CSSProperties}>{cardTitle}</p>
+        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-[#847766] dark:text-[#b7ab9a]">{cardTitle}</p>
         {icon && <span className="text-[#b8860b]">{icon}</span>}
       </div>
-      <p className="mt-4 text-[2rem] font-light tracking-[-0.05em] tabular-nums text-[#1D1D1F] dark:text-[#f5efe3]">{display}</p>
-      <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-[#7b7061] dark:text-[#a79b8b]">{descriptor}</p>
+      <p className="mt-3 text-[1.75rem] font-light tracking-[-0.04em] tabular-nums text-[#1D1D1F] dark:text-[#f5efe3]">{display}</p>
+      <p className="mt-1.5 text-[11px] uppercase tracking-[0.16em] text-[#7b7061] dark:text-[#a79b8b]">{descriptor}</p>
     </div>
   );
 }

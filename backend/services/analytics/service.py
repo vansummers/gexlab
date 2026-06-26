@@ -2,24 +2,39 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any
 from services.analytics.engine import GreeksEngine
 
 logger = logging.getLogger("analytics_service")
 
+_RFR_CACHE_TTL = timedelta(hours=1)
+
 class GexAnalyticsService:
     def __init__(self):
         self.engine = GreeksEngine()
+        self._rfr_cache: float | None = None
+        self._rfr_fetched_at: datetime | None = None
 
     def get_risk_free_rate(self) -> float:
-        """Fetch current 13-week Treasury Bill yield (^IRX)."""
+        """Fetch 13-week T-bill yield (^IRX), cached for 1 hour."""
+        now = datetime.now()
+        if (
+            self._rfr_cache is not None
+            and self._rfr_fetched_at is not None
+            and now - self._rfr_fetched_at < _RFR_CACHE_TTL
+        ):
+            return self._rfr_cache
         try:
             irx = yf.Ticker("^IRX")
-            rate = irx.fast_info['lastPrice'] / 100.0 # Convert 4.5 to 0.045
-            return rate if rate > 0 else 0.045
+            rate = irx.fast_info['lastPrice'] / 100.0
+            if rate > 0:
+                self._rfr_cache = rate
+                self._rfr_fetched_at = now
+                return rate
         except Exception:
-            return 0.045 # Default to 4.5% if fetch fails
+            pass
+        return self._rfr_cache if self._rfr_cache is not None else 0.045
 
     def process_chain(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -31,7 +46,9 @@ class GexAnalyticsService:
 
         spot = raw_data.get("spotPrice", 0.0)
         r = self.get_risk_free_rate()
-        q = 0.015 # Default dividend yield for SPY
+        # Approximate dividend yields: SPY ~1.5%, QQQ ~0.6%
+        ticker = raw_data.get("symbol", "SPY").upper()
+        q = 0.006 if ticker == "QQQ" else 0.015
         
         # Prepare inputs for engine
         S = np.full(len(df_raw), spot)
@@ -43,15 +60,16 @@ class GexAnalyticsService:
         T = (df_raw['expiry_dt'] - now).dt.total_seconds() / (365 * 24 * 3600)
         T = np.maximum(T, 1e-5) # Prevent division by zero for expired contracts
         
-        # Implied Volatility (use provided IV or interpolate)
-        sigma = df_raw['impliedVolatility'].values
-        sigma = np.maximum(sigma, 0.01) # Floor IV at 1%
+        # Implied Volatility — fill NaN with a neutral 20% default before flooring
+        # so a single missing IV doesn't propagate NaN through all Greeks.
+        sigma = df_raw['impliedVolatility'].fillna(0.2).values
+        sigma = np.maximum(sigma, 0.01)
         
         flags = df_raw['type'].map({'call': 'c', 'put': 'p'}).values
 
         # 1. Calculate Standard Greeks
         greeks = self.engine.calculate_basic_greeks(S, K, T, r, sigma, flags)
-        
+
         delta = greeks['delta']
         gamma = greeks['gamma']
         vega = greeks['vega']
@@ -59,9 +77,9 @@ class GexAnalyticsService:
 
         # Attribution mask for dealer positioning
         is_call = (flags == 'c')
-        
-        # 2. Calculate Higher Order Greeks
-        higher = self.engine.calculate_higher_order_greeks(S, K, T, r, q, sigma)
+
+        # 2. Calculate Higher Order Greeks — reuse d1/d2/sqrt_t already in greeks
+        higher = self.engine.calculate_higher_order_greeks(S, K, T, r, q, sigma, _precomputed=greeks)
         
         # 3. Calculate Dealer Exposures (EX)
         # Exposure = Greek * OpenInterest * Multiplier * SpotPrice (for GEX)

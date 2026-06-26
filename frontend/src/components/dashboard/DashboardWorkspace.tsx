@@ -62,6 +62,7 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
   const [comparisonSnapshot, setComparisonSnapshot] = useState<HistoricalSnapshotResponse | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [datesLoading, setDatesLoading] = useState(true);
   const [macroEvents, setMacroEvents] = useState<MacroEvent[]>([]);
   const { health, analytics, basis, error, status, ageMs, pollingPaused, refresh } = useMarketData(ticker);
 
@@ -113,6 +114,7 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
 
   useEffect(() => {
     let cancelled = false;
+    setDatesLoading(true);
 
     const loadDates = async () => {
       try {
@@ -126,6 +128,8 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
         if (cancelled) return;
         setAvailableDates([]);
         setHistoryError(err instanceof Error ? err.message : 'Unable to list saved dates.');
+      } finally {
+        if (!cancelled) setDatesLoading(false);
       }
     };
 
@@ -135,6 +139,14 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
       cancelled = true;
     };
   }, [ticker, selectedDate]);
+
+  // Resolve EOD to the most recent snapshot strictly before today (America/New_York).
+  // Falls back to availableDates[0] only when no prior-day data exists yet.
+  const eodTargetDate = useMemo(() => {
+    if (availableDates.length === 0) return null;
+    const todayET = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+    return availableDates.find((date) => date < todayET) ?? availableDates[0];
+  }, [availableDates]);
 
   useEffect(() => {
     let cancelled = false;
@@ -147,10 +159,10 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
         return;
       }
 
-      const targetDate = selectedDate === 'eod' ? availableDates[0] : selectedDate;
       if (selectedDate === 'eod' && availableDates.length === 0) {
         return;
       }
+      const targetDate = selectedDate === 'eod' ? eodTargetDate : selectedDate;
 
       try {
         setHistoryLoading(true);
@@ -172,7 +184,7 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
     return () => {
       cancelled = true;
     };
-  }, [ticker, selectedDate, availableDates]);
+  }, [ticker, selectedDate, availableDates, eodTargetDate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -295,13 +307,8 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
   const expiryBuckets = useMemo(() => buildExpiryBuckets(displayAnalytics?.raw ?? [], comparisonAnalytics?.raw ?? []), [displayAnalytics, comparisonAnalytics?.raw]);
   const insights = useMemo(() => buildInsights(displayAnalytics, expiryBuckets), [displayAnalytics, expiryBuckets]);
   const overallRatios = useMemo(() => buildOverallRatios(displayAnalytics?.raw ?? []), [displayAnalytics]);
-  const nearTermBuckets = useMemo(() => buildNearTermBuckets(expiryBuckets), [expiryBuckets]);
   const regimeSummary = useMemo(() => displayAnalytics ? buildDealerRegimeSummary(displayAnalytics, expiryBuckets) : '', [displayAnalytics, expiryBuckets]);
   const eventMarkers = useMemo(() => buildEventMarkers(ticker, expiryBuckets, macroEvents), [ticker, expiryBuckets, macroEvents]);
-  const aggressionFlags = useMemo(() => buildAggressionFlags(expiryBuckets), [expiryBuckets]);
-  const travelBands = useMemo(() => buildTravelBands(displayAnalytics, expiryBuckets), [displayAnalytics, expiryBuckets]);
-  const sessionChangeBadges = useMemo(() => buildSessionChangeBadges(displayAnalytics, comparisonAnalytics), [displayAnalytics, comparisonAnalytics]);
-  const dexInventory = useMemo(() => buildDexInventory(displayAnalytics, expiryBuckets), [displayAnalytics, expiryBuckets]);
   const availableDteLevels = displayAnalytics?.levels?.byDte ?? [];
   const activeLevels = selectedDte === 'all'
     ? displayAnalytics?.levels
@@ -337,7 +344,7 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
     return <ErrorScreen ticker={ticker} setTicker={setTicker} message={error ?? 'The analytics engine is offline.'} onRetry={() => void refresh()} />;
   }
 
-  if (!displayAnalytics && !isLive && historyLoading) {
+  if (!displayAnalytics && !isLive && (historyLoading || datesLoading)) {
     return <LoadingScreen ticker={ticker} setTicker={setTicker} sessionMode={`Loading ${selectedDate}`} />;
   }
 
@@ -422,60 +429,44 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
             }}
           />
 
-          <div className="min-w-0 flex-1 space-y-8">
-        <header className="rounded-[2.5rem] border border-[#e7e1d5] bg-[linear-gradient(135deg,rgba(255,255,255,0.88),rgba(249,246,240,0.92))] px-6 py-6 shadow-[0_25px_80px_rgba(45,33,17,0.06)] dark:border-white/10 dark:bg-[linear-gradient(135deg,rgba(22,25,32,0.94),rgba(17,20,26,0.92))] dark:shadow-[0_25px_80px_rgba(0,0,0,0.35)] md:px-8 md:py-8">
-          <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-            <div className="space-y-4">
-              <h1 className="text-[clamp(2rem,5vw,3.6rem)] font-light tracking-[-0.04em] text-[#1D1D1F] dark:text-[#f5efe3]">
-                GexLab <span className="font-medium tracking-[-0.02em] text-[#b8860b]">v2</span>
-              </h1>
-              <div className="flex flex-wrap items-center gap-3 text-[11px] uppercase tracking-[0.24em]">
-                <Badge tone="slate">{sessionMode}</Badge>
+          <div className="min-w-0 flex-1 space-y-5">
+        <header className="rounded-2xl border border-[#e7e1d5] bg-[rgba(255,255,255,0.88)] px-5 py-3 shadow-[0_8px_30px_rgba(45,33,17,0.05)] dark:border-white/10 dark:bg-[rgba(22,25,32,0.94)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.28)]">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-base font-semibold tracking-tight text-[#1D1D1F] dark:text-[#f5efe3]">
+                Gex<span className="text-[#b8860b]">Lab</span>
+              </span>
+              <div className="hidden sm:flex items-center gap-2">
                 <Badge tone={status === 'ready' ? 'green' : status === 'stale' ? 'amber' : status === 'error' ? 'orange' : 'slate'}>{panelStatus}</Badge>
-                <Badge tone="slate">Refresh Age {formatAge(ageMs)}</Badge>
-                <Badge tone="slate">
-                  {isLive
-                    ? showingOvernightFallback
-                      ? `Saved ${overnightFallbackSnapshot?.date ?? 'Fallback'}`
-                      : pollingPaused
-                        ? 'Poller Paused'
-                        : health?.polling
-                          ? 'Poller Active'
-                          : 'Poller Idle'
-                    : `Saved ${selectedDate === 'eod' ? 'EOD' : selectedDate}`}
-                </Badge>
+                {ageMs !== null && <Badge tone="slate">{formatAge(ageMs)}</Badge>}
               </div>
             </div>
 
-            <div className="flex flex-col gap-4 xl:items-end">
-              <div className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-[#e5ddcf] bg-white/80 p-1.5 shadow-sm dark:border-white/10 dark:bg-white/6">
-                <TickerToggle active={ticker === 'SPY'} onClick={() => setTicker('SPY')} label="SPY" />
-                <TickerToggle active={ticker === 'QQQ'} onClick={() => setTicker('QQQ')} label="QQQ" />
-                <select
-                  value={selectedDate}
-                  onChange={(event) => setSelectedDate(event.target.value)}
-                  className="rounded-xl border border-[#e5ddcf] bg-[#faf7f1] px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.18em] text-[#5f5648] dark:border-white/10 dark:bg-[#1d222b] dark:text-[#d8cebf]"
-                >
-                  <option value="eod">EOD Mode</option>
-                  <option value="live">Live Mode</option>
-                  {availableDates.map((date) => (
-                    <option key={date} value={date}>
-                      {date}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className="flex items-center gap-2 rounded-[1.1rem] border border-[#e5ddcf] bg-white/80 p-1 shadow-sm dark:border-white/10 dark:bg-white/6">
+              <TickerToggle active={ticker === 'SPY'} onClick={() => setTicker('SPY')} label="SPY" />
+              <TickerToggle active={ticker === 'QQQ'} onClick={() => setTicker('QQQ')} label="QQQ" />
+              <select
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                className="rounded-xl border border-[#e5ddcf] bg-[#faf7f1] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#5f5648] dark:border-white/10 dark:bg-[#1d222b] dark:text-[#d8cebf]"
+              >
+                <option value="eod">EOD</option>
+                <option value="live">Live</option>
+                {availableDates.map((date) => (
+                  <option key={date} value={date}>{date}</option>
+                ))}
+              </select>
             </div>
           </div>
 
-          <nav className="scrollbar-none mt-6 flex gap-2 overflow-x-auto border-t border-[#e8e1d6] pt-6 dark:border-white/10 xl:hidden">
+          <nav className="scrollbar-none mt-3 flex gap-2 overflow-x-auto border-t border-[#e8e1d6] pt-3 dark:border-white/10 xl:hidden">
             {orderedNavItems.map((item) => {
               const active = item.view === view || pathname === item.href;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`whitespace-nowrap rounded-full border px-4 py-2.5 text-[10px] font-black uppercase tracking-[0.24em] transition-all ${active ? 'border-[#d7c08a] bg-[linear-gradient(135deg,#fffaf0,#f8edd2)] text-[#5a4305] shadow-[0_14px_35px_rgba(95,70,10,0.09)] dark:border-[#8d7331] dark:bg-[linear-gradient(135deg,#241d12,#171b22)] dark:text-[#f0d78d] dark:shadow-[0_14px_35px_rgba(0,0,0,0.35)]' : 'border-[#e5ddcf] bg-white/75 text-[#7a6e5d] hover:border-[#d7c08a] hover:bg-[#fffaf2] dark:border-white/10 dark:bg-white/5 dark:text-[#c8bbab] dark:hover:border-[#8d7331] dark:hover:bg-white/8'}`}
+                  className={`whitespace-nowrap rounded-full border px-4 py-2 text-[10px] font-black uppercase tracking-[0.24em] transition-all ${active ? 'border-[#d7c08a] bg-[linear-gradient(135deg,#fffaf0,#f8edd2)] text-[#5a4305] shadow-[0_8px_20px_rgba(95,70,10,0.09)] dark:border-[#8d7331] dark:bg-[linear-gradient(135deg,#241d12,#171b22)] dark:text-[#f0d78d]' : 'border-[#e5ddcf] bg-white/75 text-[#7a6e5d] hover:border-[#d7c08a] hover:bg-[#fffaf2] dark:border-white/10 dark:bg-white/5 dark:text-[#c8bbab] dark:hover:border-[#8d7331] dark:hover:bg-white/8'}`}
                 >
                   {item.label}
                 </Link>
@@ -487,46 +478,30 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
         {view === 'overview' && (
           <>
             <section className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-              <div className="rounded-[2rem] border border-[#e6dfd3] bg-white/85 p-6 shadow-[0_18px_55px_rgba(45,33,17,0.05)] dark:border-white/10 dark:bg-white/6 dark:shadow-[0_18px_55px_rgba(0,0,0,0.28)]">
+              <div className="rounded-2xl border border-[#e6dfd3] bg-white/85 p-5 shadow-[0_4px_16px_rgba(45,33,17,0.04)] dark:border-white/10 dark:bg-white/6 dark:shadow-[0_4px_16px_rgba(0,0,0,0.22)]">
                 <div className="mb-4 flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-[#857867] dark:text-[#b7ab9a]">Session Regime</p>
-                    <h2 className="mt-1 text-3xl font-light tracking-[-0.04em] text-[#1D1D1F] dark:text-[#f5efe3]">
+                    <p className="text-[10px] font-black uppercase tracking-[0.24em] text-[#857867] dark:text-[#b7ab9a]">Session Regime</p>
+                    <h2 className="mt-1 text-2xl font-light tracking-[-0.03em] text-[#1D1D1F] dark:text-[#f5efe3]">
                       {displayAnalytics.summary.totalNetGex > 0 ? 'Positive Gamma Bias' : 'Negative Gamma Pressure'}
                     </h2>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] uppercase tracking-[0.28em] text-[#8f816d] dark:text-[#b7ab9a]">{priceMode === 'futures' ? sourceBasis?.futures_ticker ?? 'Futures Spot' : 'Spot'}</p>
-                    <p className="mt-1 text-xl font-medium tabular-nums text-[#1D1D1F] dark:text-[#f5efe3]">{formatCurrency(displayAnalytics.summary.spotPrice)}</p>
+                    <p className="text-[10px] uppercase tracking-[0.22em] text-[#8f816d] dark:text-[#b7ab9a]">{priceMode === 'futures' ? sourceBasis?.futures_ticker ?? 'Futures Spot' : 'Spot'}</p>
+                    <p className="mt-1 text-lg font-medium tabular-nums text-[#1D1D1F] dark:text-[#f5efe3]">{formatCurrency(displayAnalytics.summary.spotPrice)}</p>
                   </div>
                 </div>
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                   {insights.map((item) => <InsightChip key={item.label} {...item} />)}
                 </div>
-                <div className="mt-4 rounded-[1.5rem] border border-[#eadfcf] bg-[#fcf8f1] px-4 py-4 text-sm leading-relaxed text-[#6a604f] dark:border-white/10 dark:bg-white/5 dark:text-[#d7cbbb]">
-                  <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[#8a7d68] dark:text-[#c8bbab]">Dealer Summary</p>
-                  <p className="mt-2">{regimeSummary}</p>
+                <div className="mt-3 rounded-xl border border-[#eadfcf] bg-[#fcf8f1] px-4 py-3 text-sm leading-relaxed text-[#6a604f] dark:border-white/10 dark:bg-white/5 dark:text-[#d7cbbb]">
+                  <p className="text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">Dealer Summary</p>
+                  <p className="mt-1.5">{regimeSummary}</p>
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border border-[#e7dece] bg-[linear-gradient(160deg,rgba(255,250,241,0.96),rgba(247,238,219,0.92))] p-6 text-[#3d3120] shadow-[0_18px_55px_rgba(45,33,17,0.08)] dark:border-white/10 dark:bg-[linear-gradient(160deg,rgba(38,35,30,0.96),rgba(58,50,40,0.94))] dark:text-[#f5efe3] dark:shadow-[0_18px_55px_rgba(45,33,17,0.12)]">
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-[#8d7242] dark:text-[#d7cab3]">Key Levels</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPriceMode('etf')}
-                    className={`rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.22em] transition-all duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b8860b]/40 ${priceMode === 'etf' ? 'border-[#d7c08a] bg-[#fff6df] text-[#6d520a] dark:border-[#f0ddb0] dark:bg-[#f7ecd0] dark:text-[#5a4305]' : 'border-[#ddcfb4] bg-white/55 text-[#7b6540] dark:border-white/10 dark:bg-white/5 dark:text-[#e7dac3]'}`}
-                  >
-                    ETF Pricing
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPriceMode('futures')}
-                    className={`rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.22em] ${priceMode === 'futures' ? 'border-[#d7c08a] bg-[#fff6df] text-[#6d520a] dark:border-[#f0ddb0] dark:bg-[#f7ecd0] dark:text-[#5a4305]' : 'border-[#ddcfb4] bg-white/55 text-[#7b6540] dark:border-white/10 dark:bg-white/5 dark:text-[#e7dac3]'}`}
-                  >
-                    Futures Pricing
-                  </button>
-                </div>
+              <div className="rounded-2xl border border-[#e7dece] bg-[linear-gradient(160deg,rgba(255,250,241,0.96),rgba(247,238,219,0.92))] p-5 text-[#3d3120] shadow-[0_4px_16px_rgba(45,33,17,0.06)] dark:border-white/10 dark:bg-[linear-gradient(160deg,rgba(38,35,30,0.96),rgba(58,50,40,0.94))] dark:text-[#f5efe3] dark:shadow-[0_4px_16px_rgba(0,0,0,0.22)]">
+                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-[#8d7242] dark:text-[#d7cab3]">Key Levels</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -558,29 +533,6 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
             </section>
 
             <section className="grid gap-4 xl:grid-cols-[1.25fr_1fr_1fr]">
-              <PanelShell title="0DTE / 1DTE Strip" subtitle="Immediate expiry pressure where intraday dealer behavior can turn fastest." status={nearTermBuckets.length ? 'Near Term' : 'No Near-Term Rows'}>
-                {nearTermBuckets.length ? (
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {nearTermBuckets.map((bucket) => (
-                      <div key={bucket.expiry} className="rounded-[1.5rem] border border-[#e6ddcf] bg-[#fcf8f1] p-4 dark:border-white/10 dark:bg-white/5">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">{bucket.dte} DTE</p>
-                          <span className="text-[10px] uppercase tracking-[0.22em] text-[#7c725f] dark:text-[#b7ab9a]">{bucket.expiry}</span>
-                        </div>
-                        <div className="mt-3 grid gap-2 text-sm text-[#6d6255] dark:text-[#a79b8b]">
-                          <div className="flex items-center justify-between"><span>Net GEX</span><span className="font-medium tabular-nums text-[#1D1D1F] dark:text-[#f5efe3]">{formatCompactNumber(bucket.gex)}</span></div>
-                          <div className="flex items-center justify-between"><span>Net Vega</span><span className="font-medium tabular-nums text-[#1D1D1F] dark:text-[#f5efe3]">{formatCompactNumber(bucket.vega)}</span></div>
-                          <div className="flex items-center justify-between"><span>Net Charm</span><span className="font-medium tabular-nums text-[#1D1D1F] dark:text-[#f5efe3]">{formatCompactNumber(bucket.charm)}</span></div>
-                          <div className="flex items-center justify-between"><span>Call / Put Vol</span><span className="font-medium tabular-nums text-[#1D1D1F] dark:text-[#f5efe3]">{formatRatio(bucket.callVolume, bucket.putVolume)}</span></div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <EmptyPanel title="No 0DTE / 1DTE contracts" detail="The current chain does not include an immediate expiry bucket to surface here." />
-                )}
-              </PanelShell>
-
               <PanelShell title="Call / Put Ratios" subtitle="Overall participation balance for current contracts and positioning." status="Flow Split">
                 <div className="grid gap-3">
                   <RelevantLevelCard label="Volume Ratio" value={overallRatios.volumeRatio} detail="Call volume divided by put volume across the loaded chain." />
@@ -592,7 +544,7 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
               <PanelShell title="Event Markers" subtitle="Structural dates and macro releases with timing and recent print context." status="Decision Context">
                 <div className="grid gap-3">
                   {eventMarkers.length ? eventMarkers.map((event) => (
-                    <div key={`${event.date}-${event.label}`} className="rounded-[1.4rem] border border-[#e6ddcf] bg-[#fcf8f1] p-4 dark:border-white/10 dark:bg-white/5">
+                    <div key={`${event.date}-${event.label}`} className="rounded-xl border border-[#e6ddcf] bg-[#fcf8f1] p-4 dark:border-white/10 dark:bg-white/5">
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           <p className="text-[11px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">{event.label}</p>
@@ -612,65 +564,12 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
                       )}
                     </div>
                   )) : (
-                    <EmptyPanel title="No markers configured" detail="OPEX and near-term expiry markers appear automatically. Add custom macro events in `src/lib/marketEvents.ts` when you want them." />
+                    <EmptyPanel title="No markers configured" detail="OPEX and near-term expiry markers appear automatically." />
                   )}
                 </div>
               </PanelShell>
             </section>
 
-            <section className="grid gap-4 xl:grid-cols-[1.1fr_1fr_1fr]">
-              <PanelShell title="Session Change Badges" subtitle="What materially changed versus the prior saved snapshot or latest reference." status="Delta">
-                <div className="grid gap-3 md:grid-cols-2">
-                  {sessionChangeBadges.map((badge) => (
-                    <div key={badge.label} className="rounded-[1.4rem] border border-[#e6ddcf] bg-[#fcf8f1] p-4 dark:border-white/10 dark:bg-white/5">
-                      <p className="text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">{badge.label}</p>
-                      <p className="mt-2 text-lg font-light tracking-[-0.03em] text-[#1D1D1F] dark:text-[#f5efe3]">{badge.current}</p>
-                      <p className={`mt-2 text-[11px] font-black uppercase tracking-[0.22em] ${badge.tone === 'up' ? 'text-[#2f6b39] dark:text-[#9fdbab]' : badge.tone === 'down' ? 'text-[#9b4f26] dark:text-[#f0b390]' : 'text-[#7c725f] dark:text-[#b7ab9a]'}`}>{badge.delta}</p>
-                    </div>
-                  ))}
-                </div>
-              </PanelShell>
-
-              <PanelShell title="Dealer Inventory" subtitle="Directional and maturity splits that help explain whether pressure is concentrated, balanced, or likely to roll." status="DEX Read">
-                <div className="grid gap-3">
-                  <RelevantLevelCard label="Call / Put DEX" value={dexInventory.callPutRatio} detail="Call DEX divided by the absolute value of put DEX across the current chain." />
-                  <RelevantLevelCard label="Front / Back DEX" value={dexInventory.frontBackRatio} detail="Front expiries up to 7 DTE versus the rest of the loaded chain." />
-                  <RelevantLevelCard label="DEX Bias" value={dexInventory.biasLabel} detail={dexInventory.biasNote} />
-                  <RelevantLevelCard label="Front Bucket" value={dexInventory.frontBucketLabel} detail={dexInventory.frontBucketNote} />
-                </div>
-              </PanelShell>
-
-              <PanelShell title="Travel Bands" subtitle="Heuristic path difficulty from spot to the nearest major walls." status="Heuristic">
-                <div className="grid gap-3">
-                  {travelBands.map((band) => (
-                    <div key={band.label} className="rounded-[1.5rem] border border-[#e6ddcf] bg-[#fcf8f1] p-4 dark:border-white/10 dark:bg-white/5">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">{band.label}</p>
-                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.22em] ${band.band === 'High' ? 'bg-[#eef8ee] text-[#2f6b39] dark:bg-[#16231a] dark:text-[#9fdbab]' : band.band === 'Medium' ? 'bg-[#fff7e2] text-[#8a6400] dark:bg-[#231d12] dark:text-[#f2d482]' : 'bg-[#fff1ea] text-[#9b4f26] dark:bg-[#261810] dark:text-[#f0b390]'}`}>{band.band}</span>
-                      </div>
-                      <p className="mt-2 text-lg font-light tracking-[-0.03em] text-[#1D1D1F] dark:text-[#f5efe3]">{band.target}</p>
-                      <p className="mt-2 text-sm leading-relaxed text-[#6d6255] dark:text-[#a79b8b]">{band.note}</p>
-                    </div>
-                  ))}
-                </div>
-              </PanelShell>
-
-              <PanelShell title="Aggression Flags" subtitle="Flow-heavy pockets that resemble call-sweep or put-sweep style urgency." status="Flow Watch">
-                <div className="grid gap-3">
-                  {aggressionFlags.length ? aggressionFlags.map((flag) => (
-                    <div key={`${flag.expiry}-${flag.label}`} className="rounded-[1.5rem] border border-[#e6ddcf] bg-[#fcf8f1] p-4 dark:border-white/10 dark:bg-white/5">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">{flag.label}</p>
-                        <span className="text-[10px] uppercase tracking-[0.22em] text-[#7d705e] dark:text-[#b7ab9a]">{flag.expiry}</span>
-                      </div>
-                      <p className="mt-2 text-sm leading-relaxed text-[#6d6255] dark:text-[#a79b8b]">{flag.note}</p>
-                    </div>
-                  )) : (
-                    <EmptyPanel title="No sweep-style flags" detail="Current volume and OI mix is not showing an unusually one-sided aggressive pocket." />
-                  )}
-                </div>
-              </PanelShell>
-            </section>
           </>
         )}
 

@@ -25,7 +25,7 @@ export function DashboardSidebar({
   return (
     <aside className="hidden xl:block xl:w-[12.75rem] xl:flex-none">
       <div className="app-scroll sticky top-6 max-h-[calc(100vh-3rem)] space-y-4 overflow-y-auto pr-0">
-        <div className="rounded-[1.75rem] border border-[#e4dbcc] bg-[linear-gradient(180deg,rgba(255,252,246,0.94),rgba(246,240,231,0.9))] p-4 shadow-[0_18px_48px_rgba(45,33,17,0.08)] dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(23,27,34,0.96),rgba(18,22,29,0.94))] dark:shadow-[0_18px_48px_rgba(0,0,0,0.28)]">
+        <div className="rounded-2xl border border-[#e4dbcc] bg-[linear-gradient(180deg,rgba(255,252,246,0.94),rgba(246,240,231,0.9))] p-4 shadow-[0_18px_48px_rgba(45,33,17,0.08)] dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(23,27,34,0.96),rgba(18,22,29,0.94))] dark:shadow-[0_18px_48px_rgba(0,0,0,0.28)]">
           <div className="flex items-center justify-between gap-3">
             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-[#8a7d68] dark:text-[#c8bbab]">Navigation</p>
             <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-[#7c725f] dark:text-[#b7ab9a]">
@@ -76,7 +76,7 @@ export function DashboardSidebar({
           </div>
         </div>
 
-        <div className="rounded-[1.75rem] border border-[#e4dbcc] bg-[linear-gradient(180deg,rgba(255,252,246,0.94),rgba(246,240,231,0.9))] p-4 shadow-[0_18px_48px_rgba(45,33,17,0.08)] dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(23,27,34,0.96),rgba(18,22,29,0.94))] dark:shadow-[0_18px_48px_rgba(0,0,0,0.28)]">
+        <div className="rounded-2xl border border-[#e4dbcc] bg-[linear-gradient(180deg,rgba(255,252,246,0.94),rgba(246,240,231,0.9))] p-4 shadow-[0_18px_48px_rgba(45,33,17,0.08)] dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(23,27,34,0.96),rgba(18,22,29,0.94))] dark:shadow-[0_18px_48px_rgba(0,0,0,0.28)]">
           <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.26em] text-[#8a7d68] dark:text-[#c8bbab]">
             <Waves size={12} className="text-[#b8860b]" />
             Session

@@ -12,6 +12,8 @@ class SnapshotStorageService:
         project_root = Path(__file__).resolve().parents[2]
         self.base_dir = base_dir or project_root / "data" / "snapshots"
         self.base_dir.mkdir(parents=True, exist_ok=True)
+        # In-memory cache for snapshot date lists; invalidated on save.
+        self._dates_cache: Dict[str, List[str]] = {}
 
     def _ticker_dir(self, ticker: str) -> Path:
         ticker_dir = self.base_dir / ticker.upper()
@@ -43,13 +45,21 @@ class SnapshotStorageService:
         }
 
         snapshot_path = self._snapshot_path(ticker, effective_date)
-        snapshot_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        snapshot_path.write_text(json.dumps(payload), encoding="utf-8")
+        # Invalidate cached date list so the next API request reflects the new file.
+        self._dates_cache.pop(ticker.upper(), None)
         return snapshot_path
 
     def list_snapshot_dates(self, ticker: str) -> List[str]:
-        ticker_dir = self._ticker_dir(ticker)
-        dates = [path.stem for path in ticker_dir.glob("*.json")]
-        return sorted(dates, reverse=True)
+        key = ticker.upper()
+        if key not in self._dates_cache:
+            ticker_dir = self._ticker_dir(key)
+            dates = sorted(
+                (path.stem for path in ticker_dir.glob("*.json")),
+                reverse=True,
+            )
+            self._dates_cache[key] = dates
+        return self._dates_cache[key]
 
     def load_snapshot(self, ticker: str, snapshot_date: str) -> Optional[Dict[str, Any]]:
         snapshot_path = self._snapshot_path(ticker, snapshot_date)
