@@ -2127,8 +2127,8 @@ function buildFuturesBridgeSection(
   const lambdaBands = deriveLambdaBands(analytics, targetExpiries) ?? analytics?.levels?.lambda?.bands;
   const vanna = withDerivedGreekLevels(analytics, analytics?.levels?.vanna, 'vex');
   const charm = withDerivedGreekLevels(analytics, analytics?.levels?.charm, 'chex');
-  const speed = withDerivedGreekLevels(analytics, analytics?.levels?.speed, 'spex');
-  const zomma = withDerivedGreekLevels(analytics, analytics?.levels?.zomma, 'zomex');
+  const speed = withDerivedGreekLevels(analytics, analytics?.levels?.speed, 'spex', ticker);
+  const zomma = withDerivedGreekLevels(analytics, analytics?.levels?.zomma, 'zomex', ticker);
   const rawValues = [
     d0?.callWall,
     d0?.putWall,
@@ -2175,30 +2175,31 @@ type BridgeGreekMetric = 'vex' | 'chex' | 'spex' | 'zomex';
 function withDerivedGreekLevels(
   analytics: AnalyticsResponse | null,
   levels: { flip?: number; callWall?: number; putWall?: number } | undefined,
-  metric: BridgeGreekMetric
+  metric: BridgeGreekMetric,
+  ticker?: 'SPY' | 'QQQ'
 ) {
-  const derived = deriveGreekLevelsFromStrikes(analytics, metric);
+  const derived = deriveGreekLevelsFromStrikes(analytics, metric) ?? deriveGreekLevelsFromRaw(analytics, metric, ticker);
+  const pick = (value: number | undefined, fallback: number | undefined) =>
+    typeof value === 'number' && value !== 0 ? value : fallback;
   return {
-    flip: levels?.flip ?? derived?.flip,
-    callWall: levels?.callWall ?? derived?.callWall,
-    putWall: levels?.putWall ?? derived?.putWall,
+    flip: pick(levels?.flip, derived?.flip),
+    callWall: pick(levels?.callWall, derived?.callWall),
+    putWall: pick(levels?.putWall, derived?.putWall),
   };
 }
 
-function deriveGreekLevelsFromStrikes(analytics: AnalyticsResponse | null, metric: BridgeGreekMetric) {
-  const rows = (analytics?.strikes ?? [])
-    .filter((row) => typeof row.strike === 'number' && typeof row[metric] === 'number')
-    .map((row) => ({ strike: row.strike, value: row[metric] as number }))
-    .filter((row) => Number.isFinite(row.value) && row.value !== 0)
+function deriveGreekLevelsFromRows(rows: Array<{ strike: number; value: number }>, spot: number) {
+  const sortedRows = rows
+    .filter((row) => Number.isFinite(row.strike) && Number.isFinite(row.value) && row.value !== 0)
     .sort((a, b) => a.strike - b.strike);
-  if (!rows.length) return null;
+  if (!sortedRows.length) return null;
 
-  const positive = [...rows].sort((a, b) => b.value - a.value)[0];
-  const negative = [...rows].sort((a, b) => a.value - b.value)[0];
+  const positive = [...sortedRows].sort((a, b) => b.value - a.value)[0];
+  const negative = [...sortedRows].sort((a, b) => a.value - b.value)[0];
   const crossings: number[] = [];
-  for (let index = 1; index < rows.length; index += 1) {
-    const left = rows[index - 1];
-    const right = rows[index];
+  for (let index = 1; index < sortedRows.length; index += 1) {
+    const left = sortedRows[index - 1];
+    const right = sortedRows[index];
     if (Math.sign(left.value) === Math.sign(right.value)) continue;
     const denominator = right.value - left.value;
     crossings.push(
@@ -2208,7 +2209,6 @@ function deriveGreekLevelsFromStrikes(analytics: AnalyticsResponse | null, metri
     );
   }
 
-  const spot = analytics?.summary?.spotPrice ?? 0;
   const flip = crossings.length
     ? (spot > 0 ? crossings.sort((a, b) => Math.abs(a - spot) - Math.abs(b - spot))[0] : crossings[0])
     : undefined;
@@ -2218,6 +2218,61 @@ function deriveGreekLevelsFromStrikes(analytics: AnalyticsResponse | null, metri
     callWall: positive?.strike,
     putWall: negative?.strike,
   };
+}
+
+function deriveGreekLevelsFromStrikes(analytics: AnalyticsResponse | null, metric: BridgeGreekMetric) {
+  const rows = (analytics?.strikes ?? [])
+    .filter((row) => typeof row.strike === 'number' && typeof row[metric] === 'number')
+    .map((row) => ({ strike: row.strike, value: row[metric] as number }))
+  return deriveGreekLevelsFromRows(rows, analytics?.summary?.spotPrice ?? 0);
+}
+
+function deriveGreekLevelsFromRaw(
+  analytics: AnalyticsResponse | null,
+  metric: BridgeGreekMetric,
+  ticker: 'SPY' | 'QQQ' = 'QQQ'
+) {
+  if (metric !== 'spex' && metric !== 'zomex') return null;
+  const spot = analytics?.summary?.spotPrice ?? 0;
+  const raw = analytics?.raw ?? [];
+  if (spot <= 0 || !raw.length) return null;
+
+  const reference = normalizeDateString(analytics?.summary?.timestamp) || getTodayEtDate();
+  const r = analytics?.summary?.riskFreeRate ?? 0.045;
+  const q = ticker === 'QQQ' ? 0.006 : 0.015;
+  const byStrike = new Map<number, number>();
+
+  for (const row of raw) {
+    const strike = row.strike;
+    const oi = row.openInterest ?? 0;
+    const sigma = Math.max(row.iv ?? row.impliedVolatility ?? 0.2, 0.01);
+    const expiry = normalizeDateString(row.expiry);
+    if (!strike || !oi || !expiry) continue;
+
+    const t = Math.max(daysBetween(reference, expiry), 1) / 365;
+    const sqrtT = Math.sqrt(t);
+    const d1 = (Math.log(spot / strike) + (r - q + 0.5 * sigma * sigma) * t) / (sigma * sqrtT);
+    const d2 = d1 - sigma * sqrtT;
+    const gamma = typeof row.gamma === 'number'
+      ? row.gamma
+      : (Math.exp(-q * t) * normalPdf(d1)) / (spot * sigma * sqrtT);
+    const speed = -(gamma / spot) * (d1 / (sigma * sqrtT) + 1);
+    const zomma = gamma * (d1 * d2 - 1) / sigma;
+    const unsignedExposure = metric === 'spex'
+      ? oi * speed * 100 * spot * spot
+      : oi * zomma * 100 * spot * spot * 0.01;
+    const signedExposure = row.type === 'call' ? unsignedExposure : -unsignedExposure;
+    byStrike.set(strike, (byStrike.get(strike) ?? 0) + signedExposure);
+  }
+
+  return deriveGreekLevelsFromRows(
+    [...byStrike.entries()].map(([strike, value]) => ({ strike, value })),
+    spot
+  );
+}
+
+function normalPdf(value: number) {
+  return Math.exp(-0.5 * value * value) / Math.sqrt(2 * Math.PI);
 }
 
 function deriveLambdaBands(analytics: AnalyticsResponse | null, targetExpiries: string[] = []) {
