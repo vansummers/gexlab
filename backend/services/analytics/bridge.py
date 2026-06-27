@@ -127,7 +127,10 @@ class BridgeService:
         return [by_dte.get(0, {}), by_dte.get(1, {})]
 
     @staticmethod
-    def _derive_lambda_bands(analytics_data: Dict[str, Any]) -> Dict[str, float | None]:
+    def _derive_lambda_bands(
+        analytics_data: Dict[str, Any],
+        target_expiries: set[str] | None = None,
+    ) -> Dict[str, float | None]:
         summary = analytics_data.get("summary", {}) or {}
         spot = summary.get("spotPrice") or 0.0
         try:
@@ -152,8 +155,12 @@ class BridgeService:
                 ask = float(row.get("ask") or 0.0)
                 last = float(row.get("lastPrice") or 0.0)
                 iv = min(max(float(row.get("iv") or row.get("impliedVolatility") or 0.0), 0.01), 3.0)
-                expiry = date.fromisoformat(str(row.get("expiry", ""))[:10])
+                expiry_raw = str(row.get("expiry", ""))[:10]
+                expiry = date.fromisoformat(expiry_raw)
             except (TypeError, ValueError):
+                continue
+
+            if target_expiries and expiry_raw not in target_expiries:
                 continue
 
             mid = ((bid + ask) / 2.0) if bid > 0 and ask > 0 else last
@@ -214,7 +221,7 @@ class BridgeService:
     ) -> str:
         """
         Futures-ready compact level pack:
-        d0cw,d0pw,d0vt,d1cw,d1pw,d1vt,vf,vcw,vpw,cf,ccw,cpw,l1u,l1d,l2u,l2d
+        d0cw,d0pw,d0vt,d1cw,d1pw,d1vt,vf,vcw,vpw,cf,ccw,cpw,l1u,l1d,l2u,l2d,sf,scw,spw,zf,zcw,zpw
         """
         levels = analytics_data.get("levels", {}) or {}
 
@@ -227,7 +234,16 @@ class BridgeService:
         d0, d1 = (BridgeService._front_expiry_rows(analytics_data) + [{}, {}])[:2]
         vanna = levels.get("vanna", {}) or {}
         charm = levels.get("charm", {}) or {}
-        lambda_bands = ((levels.get("lambda") or {}).get("bands") or {}) or BridgeService._derive_lambda_bands(analytics_data)
+        speed = levels.get("speed", {}) or {}
+        zomma = levels.get("zomma", {}) or {}
+        target_expiries = {
+            str(row.get("expiry"))[:10]
+            for row in (d0, d1)
+            if isinstance(row, dict) and row.get("expiry")
+        }
+        lambda_bands = BridgeService._derive_lambda_bands(analytics_data, target_expiries)
+        if not lambda_bands:
+            lambda_bands = ((levels.get("lambda") or {}).get("bands") or {})
         values = [
             fmt(d0.get("callWall")),
             fmt(d0.get("putWall")),
@@ -245,6 +261,12 @@ class BridgeService:
             fmt(lambda_bands.get("down1")),
             fmt(lambda_bands.get("up2")),
             fmt(lambda_bands.get("down2")),
+            fmt(speed.get("flip")),
+            fmt(speed.get("callWall")),
+            fmt(speed.get("putWall")),
+            fmt(zomma.get("flip")),
+            fmt(zomma.get("callWall")),
+            fmt(zomma.get("putWall")),
         ]
         return ",".join(values)
 
@@ -295,7 +317,7 @@ class BridgeService:
         vanna_flip, vanna_cw, vanna_pw,
         charm_flip, charm_cw, charm_pw,
         speed_flip, speed_cw, speed_pw,
-        zomma_flip, vomma_cw, vomma_pw
+        zomma_flip, zomma_cw, zomma_pw
         """
         levels = analytics_data.get("levels", {}) or {}
 
@@ -309,7 +331,6 @@ class BridgeService:
         charm = greek("charm")
         speed = greek("speed")
         zomma = greek("zomma")
-        vomma = greek("vomma")
 
         values = [
             fmt(vanna.get("flip")),
@@ -322,8 +343,8 @@ class BridgeService:
             fmt(speed.get("callWall")),
             fmt(speed.get("putWall")),
             fmt(zomma.get("flip")),
-            fmt(vomma.get("callWall")),
-            fmt(vomma.get("putWall")),
+            fmt(zomma.get("callWall")),
+            fmt(zomma.get("putWall")),
         ]
 
         return ",".join(values)

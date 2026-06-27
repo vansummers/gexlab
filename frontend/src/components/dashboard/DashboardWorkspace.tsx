@@ -2121,7 +2121,8 @@ function buildFuturesBridgeSection(
       ];
   const d0 = selectedBuckets[0];
   const d1 = selectedBuckets[1];
-  const lambdaBands = analytics?.levels?.lambda?.bands ?? deriveLambdaBands(analytics);
+  const targetExpiries = [d0?.expiry, d1?.expiry].map(normalizeDateString).filter(Boolean);
+  const lambdaBands = deriveLambdaBands(analytics, targetExpiries) ?? analytics?.levels?.lambda?.bands;
   const rawValues = [
     d0?.callWall,
     d0?.putWall,
@@ -2139,6 +2140,12 @@ function buildFuturesBridgeSection(
     lambdaBands?.down1,
     lambdaBands?.up2,
     lambdaBands?.down2,
+    analytics?.levels?.speed?.flip,
+    analytics?.levels?.speed?.callWall,
+    analytics?.levels?.speed?.putWall,
+    analytics?.levels?.zomma?.flip,
+    analytics?.levels?.zomma?.callWall,
+    analytics?.levels?.zomma?.putWall,
   ];
   if (!rawValues.some((value) => typeof value === 'number' && value !== 0)) return '';
   const multiplier = ticker === 'QQQ' ? 40 : 10;
@@ -2157,12 +2164,13 @@ function buildFuturesBridgeSection(
   return rawValues.map(convert).join(',');
 }
 
-function deriveLambdaBands(analytics: AnalyticsResponse | null) {
+function deriveLambdaBands(analytics: AnalyticsResponse | null, targetExpiries: string[] = []) {
   const spot = analytics?.summary?.spotPrice ?? 0;
   const rows = analytics?.raw ?? [];
   if (!spot || !rows.length) return null;
 
   const referenceDate = normalizeDateString(analytics?.summary?.timestamp) || getTodayEtDate();
+  const expirySet = new Set(targetExpiries);
   const weightedRows = rows.flatMap((row) => {
     const oi = row.openInterest ?? 0;
     const delta = row.delta ?? 0;
@@ -2172,6 +2180,7 @@ function deriveLambdaBands(analytics: AnalyticsResponse | null) {
     const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : last;
     const iv = Math.min(Math.max(row.iv ?? row.impliedVolatility ?? 0, 0.01), 3);
     const expiry = normalizeDateString(row.expiry);
+    if (expirySet.size && !expirySet.has(expiry)) return [];
     if (!oi || mid < 0.05 || !expiry) return [];
     const optionLambda = Math.max(Math.min((delta * spot) / Math.max(mid, 0.05), 50), -50);
     const weight = Math.abs(oi * optionLambda * 100);

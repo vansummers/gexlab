@@ -6,7 +6,7 @@ import { GripVertical, Radio, Waves } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspacePrefs } from './WorkspacePrefsProvider';
 
-type DashboardView = 'overview' | 'exposure' | 'dex' | 'vega' | 'charm' | 'chain' | 'events' | 'volatility' | 'ledger' | 'levels' | 'settings';
+type DashboardView = 'overview' | 'exposure' | 'dex' | 'vega' | 'charm' | 'speed' | 'zomma' | 'vomma' | 'chain' | 'events' | 'volatility' | 'ledger' | 'levels' | 'settings';
 
 export function DashboardSidebar({
   pollerPaused,
@@ -35,7 +35,7 @@ export function DashboardSidebar({
           </div>
 
           <div className="mt-4 space-y-2">
-            {navItems.map((item) => {
+            {navItems.filter((item) => item.view !== 'settings').map((item) => {
               const active = pathname === item.href;
               return (
                 <Link
@@ -70,6 +70,24 @@ export function DashboardSidebar({
                     <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[#8a7d68] dark:text-[#c8bbab]">{item.label}</p>
                     <GripVertical size={14} className="shrink-0 text-[#9b8f7d] dark:text-[#b7ab9a]" />
                   </div>
+                </Link>
+              );
+            })}
+            <div className="my-1 border-t border-[#e5ddcf] dark:border-white/10" />
+            {navItems.filter((item) => item.view === 'settings').map((item) => {
+              const active = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    'block rounded-[1.15rem] border transition-all px-3 py-3',
+                    active
+                      ? 'border-[#d7c08a] bg-[linear-gradient(135deg,#fffaf0,#f8edd2)] shadow-[0_14px_35px_rgba(95,70,10,0.09)] dark:border-[#8d7331] dark:bg-[linear-gradient(135deg,#241d12,#171b22)] dark:shadow-[0_14px_35px_rgba(0,0,0,0.35)]'
+                      : 'border-[#e5ddcf] bg-white/75 hover:border-[#d7c08a] hover:bg-[#fffaf2] dark:border-white/10 dark:bg-white/5 dark:hover:border-[#8d7331] dark:hover:bg-white/8'
+                  )}
+                >
+                  <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[#8a7d68] dark:text-[#c8bbab]">{item.label}</p>
                 </Link>
               );
             })}

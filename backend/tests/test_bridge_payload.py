@@ -55,7 +55,7 @@ class BridgePayloadTests(unittest.TestCase):
 
         self.assertEqual(
             BridgeService.generate_futures_levels_csv(analytics, basis, "QQQ"),
-            "20360,19640,19960,20480,19520,19920,20040,20520,19480,20080,20560,19440,0,0,0,0",
+            "20360,19640,19960,20480,19520,19920,20040,20520,19480,20080,20560,19440,0,0,0,0,0,0,0,0,0,0",
         )
 
     def test_generate_futures_levels_csv_uses_front_two_unexpired_expiries(self) -> None:
@@ -75,7 +75,7 @@ class BridgePayloadTests(unittest.TestCase):
 
         self.assertEqual(
             BridgeService.generate_futures_levels_csv(analytics, basis, "QQQ"),
-            "20360,19640,19960,20480,19520,19920,0,0,0,0,0,0,0,0,0,0",
+            "20360,19640,19960,20480,19520,19920,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
         )
 
     def test_generate_futures_levels_csv_converts_spy_to_es(self) -> None:
@@ -93,7 +93,7 @@ class BridgePayloadTests(unittest.TestCase):
 
         self.assertEqual(
             BridgeService.generate_futures_levels_csv(analytics, basis, "SPY"),
-            "5090,4910,4990,5120,4880,4980,5010,5130,4870,5020,5140,4860,0,0,0,0",
+            "5090,4910,4990,5120,4880,4980,5010,5130,4870,5020,5140,4860,0,0,0,0,0,0,0,0,0,0",
         )
 
     def test_generate_futures_levels_csv_appends_lambda_bands(self) -> None:
@@ -114,7 +114,43 @@ class BridgePayloadTests(unittest.TestCase):
 
         self.assertEqual(
             BridgeService.generate_futures_levels_csv(analytics, basis, "QQQ"),
-            "20360,19640,19960,20480,19520,19920,0,0,0,0,0,0,20200,19800,20400,19600",
+            "20360,19640,19960,20480,19520,19920,0,0,0,0,0,0,20200,19800,20400,19600,0,0,0,0,0,0",
+        )
+
+    def test_generate_futures_levels_csv_appends_speed_and_zomma_levels(self) -> None:
+        analytics = {
+            "levels": {
+                "byDte": [
+                    {"dte": 0, "gammaFlip": 499.0, "callWall": 509.0, "putWall": 491.0},
+                    {"dte": 1, "gammaFlip": 498.0, "callWall": 512.0, "putWall": 488.0},
+                ],
+                "vanna": {},
+                "charm": {},
+                "speed": {"flip": 503.0, "callWall": 515.0, "putWall": 485.0},
+                "zomma": {"flip": 504.0, "callWall": 516.0, "putWall": 484.0},
+            }
+        }
+        basis = {"etf_price": 500.0, "future_price": 20000.0, "basis": 0.0}
+
+        self.assertEqual(
+            BridgeService.generate_futures_levels_csv(analytics, basis, "QQQ"),
+            "20360,19640,19960,20480,19520,19920,0,0,0,0,0,0,0,0,0,0,20120,20600,19400,20160,20640,19360",
+        )
+
+    def test_generate_greek_levels_csv_uses_zomma_walls(self) -> None:
+        analytics = {
+            "levels": {
+                "vanna": {"flip": 1.0, "callWall": 2.0, "putWall": 3.0},
+                "charm": {"flip": 4.0, "callWall": 5.0, "putWall": 6.0},
+                "speed": {"flip": 7.0, "callWall": 8.0, "putWall": 9.0},
+                "zomma": {"flip": 10.0, "callWall": 11.0, "putWall": 12.0},
+                "vomma": {"flip": 13.0, "callWall": 14.0, "putWall": 15.0},
+            }
+        }
+
+        self.assertEqual(
+            BridgeService.generate_greek_levels_csv(analytics),
+            "1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0",
         )
 
 

@@ -17,7 +17,7 @@ import { formatCompactNumber } from '../lib/format';
 
 interface GexStrikeChartProps {
   data: StrikeAnalytics[];
-  metricKey?: 'gex' | 'dex' | 'vex' | 'chex' | 'vega' | 'charm';
+  metricKey?: 'gex' | 'dex' | 'vex' | 'chex' | 'spex' | 'zomex' | 'vomex' | 'vega' | 'charm';
   metricLabel?: string;
   highlightedStrike?: number | null;
   pinnedStrike?: number | null;
@@ -53,6 +53,9 @@ export default function GexStrikeChart({
       dex: s.dex,
       vex: s.vex,
       chex: s.chex ?? 0,
+      spex: s.spex ?? 0,
+      zomex: s.zomex ?? 0,
+      vomex: s.vomex ?? 0,
       vega: s.vega ?? 0,
       charm: s.charm ?? 0,
       oi: s.openInterest

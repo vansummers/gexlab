@@ -6,7 +6,7 @@ import type { StrikeAnalytics } from '../types/analytics';
 interface GexHeatmapProps {
   data: StrikeAnalytics[];
   aristocratic?: boolean;
-  metricKey?: 'gex' | 'dex' | 'vex' | 'chex' | 'vega' | 'charm';
+  metricKey?: 'gex' | 'dex' | 'vex' | 'chex' | 'spex' | 'zomex' | 'vomex' | 'vega' | 'charm';
   metricLabel?: string;
   highlightedStrike?: number | null;
   pinnedStrike?: number | null;

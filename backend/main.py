@@ -243,7 +243,7 @@ async def get_combined_bridge():
     """
     Returns legacy ETF CSVs plus the default futures-ready Pine payload.
     Pine format: es_csv|nq_csv.
-    Each section: d0cw,d0pw,d0vt,d1cw,d1pw,d1vt,vf,vcw,vpw,cf,ccw,cpw,l1u,l1d,l2u,l2d.
+    Each section: d0cw,d0pw,d0vt,d1cw,d1pw,d1vt,vf,vcw,vpw,cf,ccw,cpw,l1u,l1d,l2u,l2d,sf,scw,spw,zf,zcw,zpw.
     """
     spy_csv = ""
     qqq_csv = ""
