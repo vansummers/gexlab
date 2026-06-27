@@ -68,7 +68,7 @@ class GexAnalyticsService:
         flags = df_raw['type'].map({'call': 'c', 'put': 'p'}).values
 
         # 1. Calculate Standard Greeks
-        greeks = self.engine.calculate_basic_greeks(S, K, T, r, sigma, flags)
+        greeks = self.engine.calculate_basic_greeks(S, K, T, r, sigma, flags, q=q)
 
         delta = greeks['delta']
         gamma = greeks['gamma']
@@ -87,6 +87,19 @@ class GexAnalyticsService:
         # Note: In standard GEX models, Gamma(total) = (Call Gamma - Put Gamma) * OI * 100 * S^2 * 0.01
         
         oi = df_raw['openInterest'].fillna(0).values
+
+        def numeric_column(name: str) -> np.ndarray:
+            if name not in df_raw.columns:
+                return np.zeros(len(df_raw))
+            return pd.to_numeric(df_raw[name], errors='coerce').fillna(0).values
+
+        bid = numeric_column('bid')
+        ask = numeric_column('ask')
+        last = numeric_column('lastPrice')
+        mid = np.where((bid > 0) & (ask > 0), (bid + ask) / 2.0, last)
+        valid_lambda_premium = mid >= 0.05
+        raw_lambda = np.where(valid_lambda_premium, delta * spot / np.maximum(mid, 0.05), 0.0)
+        option_lambda = np.clip(raw_lambda, -50.0, 50.0)
         
         # GEX (Dollar Gamma per 1% move)
         # Formula: OI * Gamma * 100 * Spot * Spot * 0.01
@@ -96,32 +109,58 @@ class GexAnalyticsService:
         # DEX (Dollar Delta)
         dex_all = oi * delta * 100 * spot
         df_raw['dex'] = np.where(is_call, dex_all, -dex_all)
+
+        # Lambda Exposure (LEX) — guarded option elasticity exposure.
+        # Capped and premium-filtered so tiny stale OTM quotes do not dominate.
+        lex_all = oi * option_lambda * 100
+        df_raw['lex'] = np.where(is_call, lex_all, -lex_all)
         
-        # Vanna Exposure (VEX)
+        # Vanna Exposure (VEX) — delta sensitivity to vol; dealer rehedge pressure on IV moves
         vex_all = oi * higher['vanna'] * 100 * spot
         df_raw['vex'] = np.where(is_call, vex_all, -vex_all)
-        
-        # Charm Exposure (CHEX)
+
+        # Charm Exposure (CHEX) — delta decay over time; dealer unwind pressure approaching expiry
         chex_all = oi * higher['charm'] * 100 * spot
         df_raw['chex'] = np.where(is_call, chex_all, -chex_all)
+
+        # Speed Exposure (SPEX) — rate of gamma change per $1 spot move; gamma instability zones
+        spex_all = oi * higher['speed'] * 100 * spot * spot
+        df_raw['spex'] = np.where(is_call, spex_all, -spex_all)
+
+        # Zomma Exposure (ZOMEX) — gamma sensitivity to vol; activates on vol spikes
+        zomex_all = oi * higher['zomma'] * 100 * spot * spot * 0.01
+        df_raw['zomex'] = np.where(is_call, zomex_all, -zomex_all)
+
+        # Vomma Exposure (VOMEX) — vega convexity; where rising vol creates exponential vega growth
+        vomex_all = oi * higher['vomma'] * 100
+        df_raw['vomex'] = np.where(is_call, vomex_all, -vomex_all)
 
         df_raw['delta'] = delta
         df_raw['gamma'] = gamma
         df_raw['vega'] = vega
         df_raw['theta'] = theta
+        df_raw['lambda'] = option_lambda
+        df_raw['optionMid'] = mid
         df_raw['vanna'] = higher['vanna']
         df_raw['charm'] = higher['charm']
+        df_raw['speed'] = higher['speed']
+        df_raw['zomma'] = higher['zomma']
+        df_raw['vomma'] = higher['vomma']
         df_raw['iv'] = sigma
-        
+
         # Aggregation by Strike
         agg = df_raw.groupby('strike').agg({
             'gex': 'sum',
             'dex': 'sum',
+            'lex': 'sum',
             'vex': 'sum',
             'chex': 'sum',
+            'spex': 'sum',
+            'zomex': 'sum',
+            'vomex': 'sum',
             'openInterest': 'sum',
             'volume': 'sum',
-            'iv': 'mean' # Skew visualization
+            'iv': 'mean',
         }).reset_index()
         
         # Metrics summary

@@ -16,8 +16,12 @@ export interface StrikeAnalytics {
   strike: number;
   gex: number;
   dex: number;
+  lex?: number;
   vex: number;
   chex?: number;
+  spex?: number;
+  zomex?: number;
+  vomex?: number;
   vega?: number;
   charm?: number;
   openInterest: number;
@@ -38,11 +42,20 @@ export interface RawContract {
   vega?: number;
   vanna?: number;
   charm?: number;
+  speed?: number;
+  zomma?: number;
+  vomma?: number;
+  lambda?: number;
+  optionMid?: number;
   iv?: number;
   gex?: number;
   dex?: number;
+  lex?: number;
   vex?: number;
   chex?: number;
+  spex?: number;
+  zomex?: number;
+  vomex?: number;
 }
 
 export interface SurfaceData {
@@ -56,10 +69,7 @@ export interface MajorWall {
   gex: number;
 }
 
-export interface DexLevelsData {
-  flip?: number;
-  callWall?: number;
-  putWall?: number;
+export interface DexLevelsData extends GreekLevelsData {
   majorWalls?: {
     calls: MajorWall[];
     puts: MajorWall[];
@@ -80,6 +90,30 @@ export interface DerivedLevelsData {
   skewCheapStrike?: number;
 }
 
+export interface GreekLevelsData {
+  flip?: number;
+  callWall?: number;
+  putWall?: number;
+  majorWalls?: {
+    calls: MajorWall[];
+    puts: MajorWall[];
+  };
+}
+
+export interface LambdaBandsData {
+  up1?: number;
+  down1?: number;
+  up2?: number;
+  down2?: number;
+  sigmaMove?: number;
+  weightedIv?: number;
+  weightedDte?: number;
+}
+
+export interface LambdaLevelsData extends GreekLevelsData {
+  bands?: LambdaBandsData;
+}
+
 export interface LevelsData {
   gammaFlip?: number;
   callWall?: number;
@@ -91,7 +125,13 @@ export interface LevelsData {
     calls: MajorWall[];
     puts: MajorWall[];
   };
-  dex?: DexLevelsData;
+  dex?: GreekLevelsData;
+  lambda?: LambdaLevelsData;
+  vanna?: GreekLevelsData;
+  charm?: GreekLevelsData;
+  speed?: GreekLevelsData;
+  zomma?: GreekLevelsData;
+  vomma?: GreekLevelsData;
   derived?: DerivedLevelsData;
   byDte?: DteLevelsData[];
 }
@@ -110,6 +150,7 @@ export interface DteLevelsData {
     puts: MajorWall[];
   };
   dex?: DexLevelsData;
+  lambda?: LambdaLevelsData;
   derived?: DerivedLevelsData;
 }
 

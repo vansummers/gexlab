@@ -19,16 +19,16 @@ import { DashboardSidebar } from './DashboardSidebar';
 import { TermStructureCharts } from './TermStructureCharts';
 import { StudioControlsModal } from './StudioControlsModal';
 import { useMarketData } from '../../hooks/useMarketData';
-import { fetchBridgePayload, fetchHistoricalSnapshot, fetchMacroEvents, fetchSnapshotDates } from '../../lib/api';
+import { fetchCombinedBridge, fetchHistoricalSnapshot, fetchMacroEvents, fetchSnapshotDates } from '../../lib/api';
 import { formatAge, formatCompactNumber, formatCurrency, formatDistanceFromSpot, formatPercent } from '../../lib/format';
 import { CUSTOM_MARKET_EVENTS } from '../../lib/marketEvents';
 import { PINE_SCRIPT } from '../../lib/pineScript';
-import { convertAnalyticsForDisplay, convertBridgePayload } from '../../lib/pricing';
+import { convertAnalyticsForDisplay } from '../../lib/pricing';
 import { copyToClipboard } from '../../lib/utils';
 import type { AnalyticsResponse, BasisData, HistoricalSnapshotResponse, MacroEvent, RawContract } from '../../types/analytics';
 import { useWorkspacePrefs } from './WorkspacePrefsProvider';
 
-type DashboardView = 'overview' | 'exposure' | 'dex' | 'vega' | 'charm' | 'chain' | 'events' | 'volatility' | 'ledger' | 'levels' | 'settings';
+type DashboardView = 'overview' | 'exposure' | 'dex' | 'vega' | 'charm' | 'speed' | 'zomma' | 'vomma' | 'chain' | 'events' | 'volatility' | 'ledger' | 'levels' | 'settings';
 
 const NAV_ITEMS: Array<{ href: string; label: string; view: DashboardView; blurb: string }> = [
   { href: '/', label: 'Overview', view: 'overview', blurb: 'Regime, levels, ladder' },
@@ -39,6 +39,9 @@ const NAV_ITEMS: Array<{ href: string; label: string; view: DashboardView; blurb
   { href: '/chain', label: 'Chain', view: 'chain', blurb: 'Expiry structure and contract mix' },
   { href: '/vega', label: 'Vega', view: 'vega', blurb: 'Vol sensitivity by strike' },
   { href: '/charm', label: 'Charm', view: 'charm', blurb: 'Time-decay flow pressure' },
+  { href: '/speed', label: 'Speed', view: 'speed', blurb: 'Gamma instability and acceleration zones' },
+  { href: '/zomma', label: 'Zomma', view: 'zomma', blurb: 'Vol-sensitive gamma concentration' },
+  { href: '/vomma', label: 'Vomma', view: 'vomma', blurb: 'Vega convexity and vol-buying pressure' },
   { href: '/events', label: 'Events', view: 'events', blurb: 'Macro calendar and impact map' },
   { href: '/ledger', label: 'Ledger', view: 'ledger', blurb: 'Contract-by-contract view' },
   { href: '/settings', label: 'Settings', view: 'settings', blurb: 'Bridge, exports, and Pine setup' },
@@ -84,7 +87,7 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
   useEffect(() => {
     if (!hydrated) return;
 
-    let frame = window.requestAnimationFrame(() => {
+    const frame = window.requestAnimationFrame(() => {
       try {
         const stored = window.sessionStorage.getItem(SCROLL_STORAGE_KEY);
         const positions = stored ? (JSON.parse(stored) as Record<string, number>) : {};
@@ -357,25 +360,25 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
   }
 
   const handleBridgeCopy = async () => {
-    const data = await fetchBridgePayload(ticker);
-    if (!data.payload) return;
-    let payload: string;
-    if (isLive) {
-      payload = convertBridgePayload(data.payload, ticker, sourceBasis, priceMode);
+    let payload = '';
+
+    if (isLive && !showingOvernightFallback) {
+      payload = (await fetchCombinedBridge()).pine;
     } else {
-      const byDte = sourceAnalytics?.levels?.byDte ?? [];
-      const d0 = byDte.find((d) => d.dte === 0);
-      const d1 = byDte.find((d) => d.dte === 1);
-      const raw: Record<string, number | null> = {
-        d0cw: d0?.callWall ?? null,
-        d0pw: d0?.putWall ?? null,
-        d0vt: d0?.gammaFlip ?? null,
-        d1cw: d1?.callWall ?? null,
-        d1pw: d1?.putWall ?? null,
-        d1vt: d1?.gammaFlip ?? null,
-      };
-      payload = convertBridgePayload(JSON.stringify(raw), ticker, sourceBasis, priceMode);
+      const bridgeTargetDate = showingOvernightFallback
+        ? getTodayEtDate()
+        : getBridgeTargetDate(selectedDate, eodTargetDate) ?? getTodayEtDate();
+      const snapshotDate = getBridgeSnapshotDate(selectedDate, eodTargetDate, availableDates);
+      payload = await buildSavedFuturesBridgePayload(
+        ticker,
+        sourceAnalytics,
+        sourceBasis,
+        bridgeTargetDate,
+        snapshotDate
+      );
     }
+
+    if (!payload) return;
     await copyToClipboard(payload);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
@@ -460,7 +463,20 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
           </div>
 
           <nav className="scrollbar-none mt-3 flex gap-2 overflow-x-auto border-t border-[#e8e1d6] pt-3 dark:border-white/10 xl:hidden">
-            {orderedNavItems.map((item) => {
+            {orderedNavItems.filter((item) => item.view !== 'settings').map((item) => {
+              const active = item.view === view || pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`whitespace-nowrap rounded-full border px-4 py-2 text-[10px] font-black uppercase tracking-[0.24em] transition-all ${active ? 'border-[#d7c08a] bg-[linear-gradient(135deg,#fffaf0,#f8edd2)] text-[#5a4305] shadow-[0_8px_20px_rgba(95,70,10,0.09)] dark:border-[#8d7331] dark:bg-[linear-gradient(135deg,#241d12,#171b22)] dark:text-[#f0d78d]' : 'border-[#e5ddcf] bg-white/75 text-[#7a6e5d] hover:border-[#d7c08a] hover:bg-[#fffaf2] dark:border-white/10 dark:bg-white/5 dark:text-[#c8bbab] dark:hover:border-[#8d7331] dark:hover:bg-white/8'}`}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+            <span className="mx-1 self-center border-l border-[#e5ddcf] py-1 dark:border-white/10" style={{ height: '1.25rem' }} />
+            {orderedNavItems.filter((item) => item.view === 'settings').map((item) => {
               const active = item.view === view || pathname === item.href;
               return (
                 <Link
@@ -808,25 +824,41 @@ function renderView({
             <div className="mt-5 rounded-[1.5rem] border border-[#eadfcf] bg-[#fcf8f1] px-4 py-4 text-sm leading-relaxed text-[#6a604f] dark:border-white/10 dark:bg-white/5 dark:text-[#d7cbbb]">
               <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[#8a7d68] dark:text-[#c8bbab]">Bridge Notes</p>
               <p className="mt-2">Use <strong>Copy Bridge</strong> for TradingView payload transfer, <strong>Copy Snapshot</strong> for quick note-taking, and <strong>Export CSV</strong> for contract-level analysis outside the app.</p>
-              <p className="mt-2">The bridge now includes aggregated levels plus separate <strong>0DTE</strong> through <strong>5DTE</strong> packs for gamma flip, call wall, put wall, max pain, and DEX flip / walls.</p>
+              <p className="mt-2">The default Pine bridge copies compact ES/MES and NQ/MNQ packs: live uses current <strong>0DTE</strong>/<strong>1DTE</strong>; saved EOD uses the next two unexpired expiry buckets.</p>
             </div>
           </PanelShell>
 
           <PanelShell title="TradingView Bridge" subtitle="Everything needed to move the current market map into Pine in one place." status="TV">
-            <div className="grid gap-4 md:grid-cols-2">
-              <RelevantLevelCard label="Gamma Flip" value={formatCurrency(displayAnalytics.levels?.gammaFlip)} detail="Included in the bridge payload as the core flip line." />
-              <RelevantLevelCard label="Call Wall" value={formatCurrency(displayAnalytics.levels?.callWall)} detail="Primary upside wall exported for TradingView overlays." />
-              <RelevantLevelCard label="Put Wall" value={formatCurrency(displayAnalytics.levels?.putWall)} detail="Primary downside wall exported for TradingView overlays." />
-              <RelevantLevelCard label="Max Pain" value={formatCurrency(displayAnalytics.levels?.maxPain)} detail="Carried into Pine for payout-minimizing reference." />
+            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">Main Levels</p>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <RelevantLevelCard label="Gamma Flip" value={formatCurrency(displayAnalytics.levels?.gammaFlip)} detail="Core flip line in the bridge payload." />
+              <RelevantLevelCard label="Call Wall" value={formatCurrency(displayAnalytics.levels?.callWall)} detail="Primary upside wall." />
+              <RelevantLevelCard label="Put Wall" value={formatCurrency(displayAnalytics.levels?.putWall)} detail="Primary downside wall." />
+              <RelevantLevelCard label="Max Pain" value={formatCurrency(displayAnalytics.levels?.maxPain)} detail="Payout-minimizing reference." />
+            </div>
+            <p className="mb-3 mt-5 text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">Greek Levels</p>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <RelevantLevelCard label="Vanna Flip" value={formatCurrency(displayAnalytics.levels?.vanna?.flip)} detail="Vanna zero-cross — volatility sensitivity reversal." />
+              <RelevantLevelCard label="Vanna CW" value={formatCurrency(displayAnalytics.levels?.vanna?.callWall)} detail="Peak upside vanna exposure." />
+              <RelevantLevelCard label="Vanna PW" value={formatCurrency(displayAnalytics.levels?.vanna?.putWall)} detail="Peak downside vanna exposure." />
+              <RelevantLevelCard label="Charm Flip" value={formatCurrency(displayAnalytics.levels?.charm?.flip)} detail="Charm zero-cross — time-decay pressure reversal." />
+              <RelevantLevelCard label="Charm CW" value={formatCurrency(displayAnalytics.levels?.charm?.callWall)} detail="Peak upside charm exposure." />
+              <RelevantLevelCard label="Charm PW" value={formatCurrency(displayAnalytics.levels?.charm?.putWall)} detail="Peak downside charm exposure." />
+              <RelevantLevelCard label="Speed Flip" value={formatCurrency(displayAnalytics.levels?.speed?.flip)} detail="Speed zero-cross — gamma acceleration reversal." />
+              <RelevantLevelCard label="Speed CW" value={formatCurrency(displayAnalytics.levels?.speed?.callWall)} detail="Fastest upside gamma acceleration zone." />
+              <RelevantLevelCard label="Speed PW" value={formatCurrency(displayAnalytics.levels?.speed?.putWall)} detail="Fastest downside gamma acceleration zone." />
+              <RelevantLevelCard label="Zomma Flip" value={formatCurrency(displayAnalytics.levels?.zomma?.flip)} detail="Zomma zero-cross — vol-sensitive gamma reversal." />
+              <RelevantLevelCard label="Vomma CW" value={formatCurrency(displayAnalytics.levels?.vomma?.callWall)} detail="Peak vol-convexity above spot." />
+              <RelevantLevelCard label="Vomma PW" value={formatCurrency(displayAnalytics.levels?.vomma?.putWall)} detail="Peak vol-convexity below spot." />
             </div>
             <div className="mt-5 rounded-[1.5rem] border border-[#eadfcf] bg-[#fcf8f1] px-4 py-4 text-sm leading-relaxed text-[#6a604f] dark:border-white/10 dark:bg-white/5 dark:text-[#d7cbbb]">
               <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[#8a7d68] dark:text-[#c8bbab]">Workflow</p>
-              <p className="mt-2">1. Copy the bridge payload here. 2. Paste it into the Pine indicator input. 3. Toggle the aggregated families and any DTE packs you want on chart. 4. Re-copy any time the live map changes.</p>
+              <p className="mt-2">1. Copy the bridge payload. 2. Paste into the Pine indicator input. 3. Adjust the box width if needed. 4. Re-copy any time the saved map changes.</p>
             </div>
           </PanelShell>
         </div>
 
-        <PanelShell title="Pine Script" subtitle="Bundled TradingView indicator scaffold with toggles for the richer GexLab level set." status="Code">
+        <PanelShell title="Pine Script" subtitle="Bundled futures indicator scaffold for the compact gamma level packs." status="Code">
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <ActionButton
               onClick={() => void handleCopyPineScript()}
@@ -1156,6 +1188,224 @@ function renderView({
               </p>
               <p className="rounded-[1.4rem] border border-[#e6dece] bg-white p-4 dark:border-white/10 dark:bg-white/5">
                 Best next additions here: DTE-bucket charm strips, opening-vs-closing decay pressure, and charm normalized by OI so small noisy strikes do not dominate.
+              </p>
+            </div>
+          </PanelShell>
+        </div>
+
+        <StatusMessage status={status} error={error} />
+      </main>
+    );
+  }
+
+  if (view === 'speed') {
+    const speedStrikes = aggregateMetricByStrike(displayAnalytics.raw, 'speed', 'spex');
+    const speedLevels = levelsForDisplay?.speed;
+
+    return (
+      <main className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <AristocratMetric cardTitle="Speed Flip" valueLabel={formatCurrency(speedLevels?.flip)} descriptor="Gamma instability zero-cross" />
+          <AristocratMetric cardTitle="Speed Call Wall" valueLabel={formatCurrency(speedLevels?.callWall)} descriptor="Peak positive speed zone" />
+          <AristocratMetric cardTitle="Speed Put Wall" valueLabel={formatCurrency(speedLevels?.putWall)} descriptor="Peak negative speed zone" />
+          <AristocratMetric cardTitle="SPEX" value={sumMetric(displayAnalytics.strikes, 'spex')} descriptor="Aggregate speed exposure" />
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
+          <PanelShell title="Speed Concentration" subtitle="Where gamma changes fastest as price moves — breakout and reversal acceleration nodes." status={panelStatus}>
+            {speedStrikes.length ? (
+              <GexStrikeChart
+                data={speedStrikes}
+                metricKey="spex"
+                metricLabel="SPEX"
+                highlightedStrike={selectedStrike}
+                pinnedStrike={pinnedStrike}
+                onHoverStrike={setHighlightedStrike}
+                onPinStrike={setPinnedStrike}
+              />
+            ) : (
+              <EmptyPanel title="No speed data yet" detail="Speed concentration appears once the analytics engine has completed a full cycle." />
+            )}
+          </PanelShell>
+
+          <PanelShell title="Speed Heat" subtitle="Relative intensity of gamma instability by strike." status={panelStatus}>
+            {speedStrikes.length ? (
+              <GexHeatmap
+                data={speedStrikes}
+                metricKey="spex"
+                metricLabel="SPEX"
+                highlightedStrike={selectedStrike}
+                pinnedStrike={pinnedStrike}
+                onHoverStrike={setHighlightedStrike}
+                onPinStrike={setPinnedStrike}
+              />
+            ) : (
+              <EmptyPanel title="No speed heat yet" detail="This panel fills after contract greeks are refreshed." />
+            )}
+          </PanelShell>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <PanelShell title="Speed Levels" subtitle="Speed flip and walls mark where gamma rebalancing accelerates violently." status={panelStatus}>
+            <div className="grid gap-3">
+              <RelevantLevelCard label="Speed Flip" value={formatCurrency(speedLevels?.flip)} detail={speedLevels?.flip ? `Distance ${formatDistanceFromSpot(speedLevels.flip, displayAnalytics.summary.spotPrice)}` : 'Speed flip unavailable.'} />
+              <RelevantLevelCard label="Speed Call Wall" value={formatCurrency(speedLevels?.callWall)} detail="Fastest upside gamma acceleration zone." />
+              <RelevantLevelCard label="Speed Put Wall" value={formatCurrency(speedLevels?.putWall)} detail="Fastest downside gamma acceleration zone." />
+            </div>
+          </PanelShell>
+
+          <PanelShell title="Speed Notes" subtitle="Speed (dΓ/dS) marks where a move self-amplifies through dealer rehedging." status="Guide">
+            <div className="grid gap-3 text-sm leading-relaxed text-[#6d6255] dark:text-[#a79b8b]">
+              <p className="rounded-[1.4rem] border border-[#e6dece] bg-[#fcf8f1] p-4 dark:border-white/10 dark:bg-white/6">
+                Speed zero-crossings are where gamma transitions from accelerating to decelerating. Crossing one intraday often marks the transition from a measured move to a squeeze or to a fade.
+              </p>
+              <p className="rounded-[1.4rem] border border-[#e6dece] bg-white p-4 dark:border-white/10 dark:bg-white/5">
+                High SPEX strikes with high GEX nearby are the most dangerous acceleration zones — dealer rehedging can feed on itself until the next speed zero-cross acts as a ceiling or floor.
+              </p>
+            </div>
+          </PanelShell>
+        </div>
+
+        <StatusMessage status={status} error={error} />
+      </main>
+    );
+  }
+
+  if (view === 'zomma') {
+    const zommaStrikes = aggregateMetricByStrike(displayAnalytics.raw, 'zomma', 'zomex');
+    const zommaLevels = levelsForDisplay?.zomma;
+
+    return (
+      <main className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <AristocratMetric cardTitle="Zomma Flip" valueLabel={formatCurrency(zommaLevels?.flip)} descriptor="Vol-sensitive gamma zero-cross" />
+          <AristocratMetric cardTitle="Zomma Call Wall" valueLabel={formatCurrency(zommaLevels?.callWall)} descriptor="Highest vol-gamma sensitivity above spot" />
+          <AristocratMetric cardTitle="Zomma Put Wall" valueLabel={formatCurrency(zommaLevels?.putWall)} descriptor="Highest vol-gamma sensitivity below spot" />
+          <AristocratMetric cardTitle="ZOMEX" value={sumMetric(displayAnalytics.strikes, 'zomex')} descriptor="Aggregate zomma exposure" />
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
+          <PanelShell title="Zomma Concentration" subtitle="Where gamma becomes most sensitive to volatility — hidden reversal zones that activate on vol spikes." status={panelStatus}>
+            {zommaStrikes.length ? (
+              <GexStrikeChart
+                data={zommaStrikes}
+                metricKey="zomex"
+                metricLabel="ZOMEX"
+                highlightedStrike={selectedStrike}
+                pinnedStrike={pinnedStrike}
+                onHoverStrike={setHighlightedStrike}
+                onPinStrike={setPinnedStrike}
+              />
+            ) : (
+              <EmptyPanel title="No zomma data yet" detail="Zomma concentration appears once the analytics engine has completed a full cycle." />
+            )}
+          </PanelShell>
+
+          <PanelShell title="Zomma Heat" subtitle="Strikes where a vol spike would most dramatically change dealer gamma exposure." status={panelStatus}>
+            {zommaStrikes.length ? (
+              <GexHeatmap
+                data={zommaStrikes}
+                metricKey="zomex"
+                metricLabel="ZOMEX"
+                highlightedStrike={selectedStrike}
+                pinnedStrike={pinnedStrike}
+                onHoverStrike={setHighlightedStrike}
+                onPinStrike={setPinnedStrike}
+              />
+            ) : (
+              <EmptyPanel title="No zomma heat yet" detail="This panel fills after contract greeks are refreshed." />
+            )}
+          </PanelShell>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <PanelShell title="Zomma Levels" subtitle="Strikes where a volatility change would most impact dealer gamma." status={panelStatus}>
+            <div className="grid gap-3">
+              <RelevantLevelCard label="Zomma Flip" value={formatCurrency(zommaLevels?.flip)} detail={zommaLevels?.flip ? `Distance ${formatDistanceFromSpot(zommaLevels.flip, displayAnalytics.summary.spotPrice)}` : 'Zomma flip unavailable.'} />
+              <RelevantLevelCard label="Call Wall" value={formatCurrency(zommaLevels?.callWall)} detail="Upside strike most sensitive to vol expansion." />
+              <RelevantLevelCard label="Put Wall" value={formatCurrency(zommaLevels?.putWall)} detail="Downside strike most sensitive to vol expansion." />
+            </div>
+          </PanelShell>
+
+          <PanelShell title="Zomma Notes" subtitle="Zomma (dΓ/dσ) reveals where vol expansion changes the dealer hedging landscape." status="Guide">
+            <div className="grid gap-3 text-sm leading-relaxed text-[#6d6255] dark:text-[#a79b8b]">
+              <p className="rounded-[1.4rem] border border-[#e6dece] bg-[#fcf8f1] p-4 dark:border-white/10 dark:bg-white/6">
+                High zomma strikes are &quot;sleeping giants&quot; — quiet on low-vol days but suddenly significant when the VIX moves. These are the levels to watch when you expect a vol regime change.
+              </p>
+              <p className="rounded-[1.4rem] border border-[#e6dece] bg-white p-4 dark:border-white/10 dark:bg-white/5">
+                Look for zomma concentration near key GEX walls — when both align, a vol spike can cause a sudden regime shift in dealer hedging pressure at that strike.
+              </p>
+            </div>
+          </PanelShell>
+        </div>
+
+        <StatusMessage status={status} error={error} />
+      </main>
+    );
+  }
+
+  if (view === 'vomma') {
+    const vommaStrikes = aggregateMetricByStrike(displayAnalytics.raw, 'vomma', 'vomex');
+    const vommaLevels = levelsForDisplay?.vomma;
+
+    return (
+      <main className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <AristocratMetric cardTitle="Vomma Call Wall" valueLabel={formatCurrency(vommaLevels?.callWall)} descriptor="Peak vol-convexity above spot" />
+          <AristocratMetric cardTitle="Vomma Put Wall" valueLabel={formatCurrency(vommaLevels?.putWall)} descriptor="Peak vol-convexity below spot" />
+          <AristocratMetric cardTitle="VOMEX" value={sumMetric(displayAnalytics.strikes, 'vomex')} descriptor="Aggregate vomma exposure" />
+          <AristocratMetric cardTitle="Net Vomma" value={sumMetric(displayAnalytics.raw, 'vomma')} descriptor="Total vega convexity in chain" />
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
+          <PanelShell title="Vomma Concentration" subtitle="Where rising vol creates exponentially more vega — vol-buying pressure zones." status={panelStatus}>
+            {vommaStrikes.length ? (
+              <GexStrikeChart
+                data={vommaStrikes}
+                metricKey="vomex"
+                metricLabel="VOMEX"
+                highlightedStrike={selectedStrike}
+                pinnedStrike={pinnedStrike}
+                onHoverStrike={setHighlightedStrike}
+                onPinStrike={setPinnedStrike}
+              />
+            ) : (
+              <EmptyPanel title="No vomma data yet" detail="Vomma concentration appears once the analytics engine has completed a full cycle." />
+            )}
+          </PanelShell>
+
+          <PanelShell title="Vomma Heat" subtitle="Where vol convexity is most concentrated — high vomma means vol buying accelerates." status={panelStatus}>
+            {vommaStrikes.length ? (
+              <GexHeatmap
+                data={vommaStrikes}
+                metricKey="vomex"
+                metricLabel="VOMEX"
+                highlightedStrike={selectedStrike}
+                pinnedStrike={pinnedStrike}
+                onHoverStrike={setHighlightedStrike}
+                onPinStrike={setPinnedStrike}
+              />
+            ) : (
+              <EmptyPanel title="No vomma heat yet" detail="This panel fills after contract greeks are refreshed." />
+            )}
+          </PanelShell>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <PanelShell title="Vomma Levels" subtitle="Strikes where vol convexity creates the most dealer buying pressure on rising vol." status={panelStatus}>
+            <div className="grid gap-3">
+              <RelevantLevelCard label="Vomma Call Wall" value={formatCurrency(vommaLevels?.callWall)} detail={vommaLevels?.callWall ? `Distance ${formatDistanceFromSpot(vommaLevels.callWall, displayAnalytics.summary.spotPrice)}` : 'Vomma call wall unavailable.'} />
+              <RelevantLevelCard label="Vomma Put Wall" value={formatCurrency(vommaLevels?.putWall)} detail={vommaLevels?.putWall ? `Distance ${formatDistanceFromSpot(vommaLevels.putWall, displayAnalytics.summary.spotPrice)}` : 'Vomma put wall unavailable.'} />
+            </div>
+          </PanelShell>
+
+          <PanelShell title="Vomma Notes" subtitle="Vomma (d²V/dσ²) measures the convexity of vega — how fast vol-buying pressure accelerates." status="Guide">
+            <div className="grid gap-3 text-sm leading-relaxed text-[#6d6255] dark:text-[#a79b8b]">
+              <p className="rounded-[1.4rem] border border-[#e6dece] bg-[#fcf8f1] p-4 dark:border-white/10 dark:bg-white/6">
+                High vomma strikes are where a sustained vol expansion creates a self-reinforcing buying cascade — as vol rises, these strikes get more valuable faster, creating additional demand.
+              </p>
+              <p className="rounded-[1.4rem] border border-[#e6dece] bg-white p-4 dark:border-white/10 dark:bg-white/5">
+                Vomma is highest for OTM options, especially those near but not at key GEX walls. On big vol crush days, these strikes tend to normalize fastest as the convexity premium collapses.
               </p>
             </div>
           </PanelShell>
@@ -1569,26 +1819,22 @@ function sumMetric<T, K extends keyof T>(rows: T[], key: K) {
   }, 0);
 }
 
-function aggregateMetricByStrike(raw: RawContract[], rawMetric: 'vega' | 'charm', exposureMetric?: 'vex' | 'chex') {
-  const grouped = new Map<number, { strike: number; gex: number; dex: number; vex: number; chex: number; vega: number; charm: number; openInterest: number; volume: number; iv: number; count: number }>();
+type RawNumericMetric = 'vega' | 'charm' | 'speed' | 'zomma' | 'vomma';
+type ExposureMetric = 'vex' | 'chex' | 'spex' | 'zomex' | 'vomex';
+
+function aggregateMetricByStrike(raw: RawContract[], rawMetric: RawNumericMetric, exposureMetric?: ExposureMetric) {
+  const grouped = new Map<number, { strike: number; gex: number; dex: number; vex: number; chex: number; spex: number; zomex: number; vomex: number; vega: number; charm: number; speed: number; zomma: number; vomma: number; openInterest: number; volume: number; iv: number; count: number }>();
 
   for (const row of raw) {
     const current = grouped.get(row.strike) ?? {
       strike: row.strike,
-      gex: 0,
-      dex: 0,
-      vex: 0,
-      chex: 0,
-      vega: 0,
-      charm: 0,
-      openInterest: 0,
-      volume: 0,
-      iv: 0,
-      count: 0,
+      gex: 0, dex: 0, vex: 0, chex: 0, spex: 0, zomex: 0, vomex: 0,
+      vega: 0, charm: 0, speed: 0, zomma: 0, vomma: 0,
+      openInterest: 0, volume: 0, iv: 0, count: 0,
     };
 
-    current[rawMetric] += typeof row[rawMetric] === 'number' ? row[rawMetric] : 0;
-    if (exposureMetric) current[exposureMetric] += typeof row[exposureMetric] === 'number' ? row[exposureMetric] : 0;
+    current[rawMetric] += typeof row[rawMetric] === 'number' ? (row[rawMetric] as number) : 0;
+    if (exposureMetric) current[exposureMetric] += typeof row[exposureMetric] === 'number' ? (row[exposureMetric] as number) : 0;
     current.openInterest += typeof row.openInterest === 'number' ? row.openInterest : 0;
     current.volume += typeof row.volume === 'number' ? row.volume : 0;
     current.iv += typeof row.iv === 'number' ? row.iv : 0;
@@ -1817,6 +2063,168 @@ function aggregateStrikeExposure(rows: RawContract[]) {
     grouped.set(row.strike, current);
   }
   return [...grouped.values()].sort((a, b) => a.strike - b.strike);
+}
+
+async function buildSavedFuturesBridgePayload(
+  activeTicker: 'SPY' | 'QQQ',
+  activeAnalytics: AnalyticsResponse | null,
+  activeBasis: BasisData | null,
+  targetDate: string,
+  snapshotDate: string | null
+) {
+  let esSection = activeTicker === 'SPY'
+    ? buildFuturesBridgeSection(activeTicker, activeAnalytics, activeBasis, targetDate)
+    : '';
+  let nqSection = activeTicker === 'QQQ'
+    ? buildFuturesBridgeSection(activeTicker, activeAnalytics, activeBasis, targetDate)
+    : '';
+
+  const otherTicker = activeTicker === 'SPY' ? 'QQQ' : 'SPY';
+  if (snapshotDate) {
+    try {
+      const otherSnapshot = await fetchHistoricalSnapshot(otherTicker, snapshotDate);
+      const otherSection = buildFuturesBridgeSection(
+        otherTicker,
+        otherSnapshot.analytics,
+        otherSnapshot.basis,
+        targetDate
+      );
+      if (otherTicker === 'SPY') {
+        esSection = otherSection;
+      } else {
+        nqSection = otherSection;
+      }
+    } catch {
+      // Keep the active ticker section usable if the paired snapshot is missing.
+    }
+  }
+
+  if (!esSection && !nqSection) return '';
+  return `${esSection}|${nqSection}`;
+}
+
+function buildFuturesBridgeSection(
+  ticker: 'SPY' | 'QQQ',
+  analytics: AnalyticsResponse | null,
+  basis: BasisData | null,
+  targetDate: string | null
+) {
+  const byDte = analytics?.levels?.byDte ?? [];
+  const selectedBuckets = targetDate
+    ? byDte
+        .filter((row) => normalizeDateString(row.expiry) >= targetDate)
+        .sort((a, b) => normalizeDateString(a.expiry).localeCompare(normalizeDateString(b.expiry)))
+        .slice(0, 2)
+    : [
+        byDte.find((row) => row.dte === 0),
+        byDte.find((row) => row.dte === 1),
+      ];
+  const d0 = selectedBuckets[0];
+  const d1 = selectedBuckets[1];
+  const lambdaBands = analytics?.levels?.lambda?.bands ?? deriveLambdaBands(analytics);
+  const rawValues = [
+    d0?.callWall,
+    d0?.putWall,
+    d0?.gammaFlip,
+    d1?.callWall,
+    d1?.putWall,
+    d1?.gammaFlip,
+    analytics?.levels?.vanna?.flip,
+    analytics?.levels?.vanna?.callWall,
+    analytics?.levels?.vanna?.putWall,
+    analytics?.levels?.charm?.flip,
+    analytics?.levels?.charm?.callWall,
+    analytics?.levels?.charm?.putWall,
+    lambdaBands?.up1,
+    lambdaBands?.down1,
+    lambdaBands?.up2,
+    lambdaBands?.down2,
+  ];
+  if (!rawValues.some((value) => typeof value === 'number' && value !== 0)) return '';
+  const multiplier = ticker === 'QQQ' ? 40 : 10;
+
+  const convert = (value: number | undefined) => {
+    if (typeof value !== 'number' || value === 0) return '0';
+    const futurePrice = basis?.future_price ?? 0;
+    const etfPrice = basis?.etf_price ?? 0;
+    const converted = futurePrice > 0 && etfPrice > 0
+      ? value * (futurePrice / etfPrice)
+      : (value * multiplier) + (basis?.basis ?? 0);
+    const rounded = Math.round(converted * 4) / 4;
+    return rounded.toFixed(2).replace(/\.?0+$/, '');
+  };
+
+  return rawValues.map(convert).join(',');
+}
+
+function deriveLambdaBands(analytics: AnalyticsResponse | null) {
+  const spot = analytics?.summary?.spotPrice ?? 0;
+  const rows = analytics?.raw ?? [];
+  if (!spot || !rows.length) return null;
+
+  const referenceDate = normalizeDateString(analytics?.summary?.timestamp) || getTodayEtDate();
+  const weightedRows = rows.flatMap((row) => {
+    const oi = row.openInterest ?? 0;
+    const delta = row.delta ?? 0;
+    const bid = Number((row as RawContract & { bid?: number }).bid ?? 0);
+    const ask = Number((row as RawContract & { ask?: number }).ask ?? 0);
+    const last = Number((row as RawContract & { lastPrice?: number }).lastPrice ?? 0);
+    const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : last;
+    const iv = Math.min(Math.max(row.iv ?? row.impliedVolatility ?? 0, 0.01), 3);
+    const expiry = normalizeDateString(row.expiry);
+    if (!oi || mid < 0.05 || !expiry) return [];
+    const optionLambda = Math.max(Math.min((delta * spot) / Math.max(mid, 0.05), 50), -50);
+    const weight = Math.abs(oi * optionLambda * 100);
+    const dte = Math.min(Math.max(daysBetween(referenceDate, expiry), 1), 30);
+    return weight > 0 ? [{ weight, iv, dte }] : [];
+  });
+
+  const totalWeight = weightedRows.reduce((sum, row) => sum + row.weight, 0);
+  if (!totalWeight) return null;
+  const weightedIv = weightedRows.reduce((sum, row) => sum + row.iv * row.weight, 0) / totalWeight;
+  const weightedDte = weightedRows.reduce((sum, row) => sum + row.dte * row.weight, 0) / totalWeight;
+  const sigmaMove = spot * weightedIv * Math.sqrt(weightedDte / 252);
+  return {
+    up1: spot + sigmaMove,
+    down1: spot - sigmaMove,
+    up2: spot + 2 * sigmaMove,
+    down2: spot - 2 * sigmaMove,
+  };
+}
+
+function getBridgeTargetDate(selectedDate: string, eodTargetDate: string | null) {
+  if (selectedDate === 'eod') return getTodayEtDate();
+  if (selectedDate === 'live') return null;
+  return addCalendarDays(selectedDate, 1) ?? eodTargetDate ?? getTodayEtDate();
+}
+
+function getBridgeSnapshotDate(selectedDate: string, eodTargetDate: string | null, availableDates: string[]) {
+  if (selectedDate === 'eod') return eodTargetDate;
+  if (selectedDate === 'live') return availableDates[0] ?? eodTargetDate;
+  return selectedDate;
+}
+
+function getTodayEtDate() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+}
+
+function addCalendarDays(dateString: string, days: number) {
+  const date = new Date(`${dateString}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function daysBetween(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00Z`).getTime();
+  const end = new Date(`${endDate}T00:00:00Z`).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 1;
+  return Math.round((end - start) / 86_400_000);
+}
+
+function normalizeDateString(dateString: string | undefined) {
+  if (!dateString) return '';
+  return dateString.slice(0, 10);
 }
 
 function calculateGammaFlipFromAgg(agg: Array<{ strike: number; gex: number }>) {

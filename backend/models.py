@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RootResponse(BaseModel):
@@ -18,7 +18,7 @@ class ErrorResponse(BaseModel):
 
 
 class RawContractModel(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
     expiry: str
     type: str
@@ -30,11 +30,14 @@ class RawContractModel(BaseModel):
     gamma: Optional[float] = None
     vega: Optional[float] = None
     theta: Optional[float] = None
+    lambda_: Optional[float] = Field(default=None, alias="lambda")
+    optionMid: Optional[float] = None
     vanna: Optional[float] = None
     charm: Optional[float] = None
     iv: Optional[float] = None
     gex: Optional[float] = None
     dex: Optional[float] = None
+    lex: Optional[float] = None
     vex: Optional[float] = None
     chex: Optional[float] = None
 
@@ -43,6 +46,7 @@ class StrikeAnalyticsModel(BaseModel):
     strike: float
     gex: float
     dex: float
+    lex: Optional[float] = None
     vex: float
     chex: float
     openInterest: float
@@ -73,6 +77,27 @@ class DexLevelsModel(BaseModel):
     majorWalls: Optional[MajorWallsModel] = None
 
 
+class GreekLevelsModel(BaseModel):
+    flip: Optional[float] = None
+    callWall: Optional[float] = None
+    putWall: Optional[float] = None
+    majorWalls: Optional[MajorWallsModel] = None
+
+
+class LambdaBandsModel(BaseModel):
+    up1: Optional[float] = None
+    down1: Optional[float] = None
+    up2: Optional[float] = None
+    down2: Optional[float] = None
+    sigmaMove: Optional[float] = None
+    weightedIv: Optional[float] = None
+    weightedDte: Optional[float] = None
+
+
+class LambdaLevelsModel(GreekLevelsModel):
+    bands: Optional[LambdaBandsModel] = None
+
+
 class DerivedLevelsModel(BaseModel):
     sessionFloor: Optional[float] = None
     oiCallWall: Optional[float] = None
@@ -88,6 +113,8 @@ class DerivedLevelsModel(BaseModel):
 
 
 class BaseLevelsModel(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     gammaFlip: float
     callWall: Optional[float] = None
     putWall: Optional[float] = None
@@ -96,6 +123,7 @@ class BaseLevelsModel(BaseModel):
     vannaMagnet: float
     majorWalls: Optional[MajorWallsModel] = None
     dex: Optional[DexLevelsModel] = None
+    lambda_: Optional[LambdaLevelsModel] = Field(default=None, alias="lambda")
     derived: Optional[DerivedLevelsModel] = None
 
 
@@ -106,6 +134,12 @@ class DteLevelsModel(BaseLevelsModel):
 
 class LevelsModel(BaseLevelsModel):
     byDte: List[DteLevelsModel] = []
+    lambda_: Optional[LambdaLevelsModel] = Field(default=None, alias="lambda")
+    vanna: Optional[GreekLevelsModel] = None
+    charm: Optional[GreekLevelsModel] = None
+    speed: Optional[GreekLevelsModel] = None
+    zomma: Optional[GreekLevelsModel] = None
+    vomma: Optional[GreekLevelsModel] = None
 
 
 class AnalyticsSummaryModel(BaseModel):

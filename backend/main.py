@@ -2,6 +2,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import logging
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
 from services.ingestion import GexIngestionService
 from services.basis import BasisService
 from services.analytics.service import GexAnalyticsService
@@ -35,6 +37,9 @@ app.add_middleware(
 )
 
 TICKERS = ["SPY", "QQQ"]
+MARKET_TIMEZONE = ZoneInfo("America/New_York")
+EOD_SNAPSHOT_START = time(16, 5)
+EOD_SNAPSHOT_FREEZE = time(17, 0)
 
 state = {
     "tickers": TICKERS,
@@ -54,6 +59,43 @@ levels_service = LevelIntelligenceService()
 bridge_service = BridgeService()
 snapshot_service = SnapshotStorageService()
 macro_events_service = MacroEventsService()
+
+
+def get_eod_snapshot_date(now: datetime | None = None) -> str | None:
+    now_et = now or datetime.now(MARKET_TIMEZONE)
+    if now_et.tzinfo is None:
+        now_et = now_et.replace(tzinfo=MARKET_TIMEZONE)
+    else:
+        now_et = now_et.astimezone(MARKET_TIMEZONE)
+
+    if now_et.weekday() >= 5 or now_et.time() < EOD_SNAPSHOT_START:
+        return None
+    return now_et.date().isoformat()
+
+
+def should_save_eod_snapshot(
+    ticker: str,
+    snapshot_date: str | None,
+    now: datetime | None = None,
+    snapshot_store: SnapshotStorageService | None = None,
+) -> bool:
+    if snapshot_date is None:
+        return False
+
+    now_et = now or datetime.now(MARKET_TIMEZONE)
+    if now_et.tzinfo is None:
+        now_et = now_et.replace(tzinfo=MARKET_TIMEZONE)
+    else:
+        now_et = now_et.astimezone(MARKET_TIMEZONE)
+
+    if now_et.weekday() >= 5 or now_et.time() < EOD_SNAPSHOT_START:
+        return False
+
+    if now_et.time() <= EOD_SNAPSHOT_FREEZE:
+        return True
+
+    store = snapshot_store or snapshot_service
+    return not store.snapshot_exists(ticker, snapshot_date)
 
 
 async def update_data_loop():
@@ -101,18 +143,20 @@ async def update_data_loop():
                     if analytics is not None:
                         state["data"][ticker]["analytics"] = analytics
 
-                snapshot_date = raw_data.get("timestamp", "")[:10] or None
-                try:
-                    snapshot_service.save_snapshot(
-                        ticker=ticker,
-                        raw_data=raw_data,
-                        basis_data=basis_data,
-                        analytics_data=analytics or {},
-                        snapshot_date=snapshot_date,
-                    )
-                except Exception as snap_err:
-                    # Snapshot failures are logged but must not abort the update cycle.
-                    logger.error(f"Snapshot save failed for {ticker} ({snapshot_date}): {snap_err}")
+                snapshot_date = get_eod_snapshot_date()
+                if should_save_eod_snapshot(ticker, snapshot_date):
+                    try:
+                        snapshot_service.save_snapshot(
+                            ticker=ticker,
+                            raw_data=raw_data,
+                            basis_data=basis_data,
+                            analytics_data=analytics or {},
+                            snapshot_date=snapshot_date,
+                            source="eod",
+                        )
+                    except Exception as snap_err:
+                        # Snapshot failures are logged but must not abort the update cycle.
+                        logger.error(f"Snapshot save failed for {ticker} ({snapshot_date}): {snap_err}")
 
                 logger.info(f"Update successful for {ticker}.")
             except Exception as e:
@@ -185,12 +229,59 @@ async def get_bridge_payload(ticker: str) -> BridgePayloadResponse:
 
     async with _state_locks[ticker]:
         analytics = state["data"][ticker]["analytics"]
+        basis = state["data"][ticker]["basis"]
     if analytics:
         return {
-            "payload": bridge_service.generate_tv_payload(analytics),
+            "payload": bridge_service.generate_tv_payload(analytics, basis, ticker),
             "timestamp": analytics.get("summary", {}).get("timestamp")
         }
     return {"payload": "", "error": "No data available"}
+
+
+@app.get("/api/metrics/bridge")
+async def get_combined_bridge():
+    """
+    Returns legacy ETF CSVs plus the default futures-ready Pine payload.
+    Pine format: es_csv|nq_csv.
+    Each section: d0cw,d0pw,d0vt,d1cw,d1pw,d1vt,vf,vcw,vpw,cf,ccw,cpw,l1u,l1d,l2u,l2d.
+    """
+    spy_csv = ""
+    qqq_csv = ""
+    spy_greeks = ""
+    qqq_greeks = ""
+    es_csv = ""
+    nq_csv = ""
+    timestamp = None
+
+    for ticker, attr in [("SPY", "spy"), ("QQQ", "qqq")]:
+        async with _state_locks[ticker]:
+            analytics = state["data"][ticker]["analytics"]
+            basis = state["data"][ticker]["basis"]
+        if analytics:
+            main_csv   = bridge_service.generate_pine_csv(analytics)
+            greek_csv  = bridge_service.generate_greek_levels_csv(analytics)
+            if attr == "spy":
+                spy_csv    = main_csv
+                spy_greeks = greek_csv
+                es_csv     = bridge_service.generate_futures_levels_csv(analytics, basis, ticker)
+                timestamp  = analytics.get("summary", {}).get("timestamp")
+            else:
+                qqq_csv    = main_csv
+                qqq_greeks = greek_csv
+                nq_csv     = bridge_service.generate_futures_levels_csv(analytics, basis, ticker)
+                timestamp  = analytics.get("summary", {}).get("timestamp") or timestamp
+
+    # Pine format: es_csv|nq_csv. Each section has walls/VT plus vanna/charm levels.
+    pine_string = f"{es_csv}|{nq_csv}"
+    return {
+        "spy": spy_csv, "qqq": qqq_csv,
+        "spy_greeks": spy_greeks, "qqq_greeks": qqq_greeks,
+        "es": es_csv,
+        "nq": nq_csv,
+        "mnq": nq_csv,
+        "pine": pine_string,
+        "timestamp": timestamp,
+    }
 
 
 @app.get("/api/history/{ticker}/dates", response_model=SnapshotDatesResponse)

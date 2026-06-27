@@ -158,6 +158,63 @@ class LevelIntelligenceService:
         return derived
 
     @staticmethod
+    def _calculate_lambda_bands(raw_list: List[Dict[str, Any]], spot_price: float = 0.0) -> Dict[str, Any]:
+        if spot_price <= 0:
+            return {
+                "up1": None,
+                "down1": None,
+                "up2": None,
+                "down2": None,
+                "sigmaMove": None,
+                "weightedIv": None,
+                "weightedDte": None,
+            }
+
+        df = pd.DataFrame(raw_list)
+        required = {"lex", "iv", "expiry"}
+        if df.empty or not required.issubset(df.columns):
+            return {
+                "up1": None,
+                "down1": None,
+                "up2": None,
+                "down2": None,
+                "sigmaMove": None,
+                "weightedIv": None,
+                "weightedDte": None,
+            }
+
+        weights = pd.to_numeric(df["lex"], errors="coerce").abs().fillna(0.0)
+        iv = pd.to_numeric(df["iv"], errors="coerce").clip(lower=0.01, upper=3.0)
+        expiry = pd.to_datetime(df["expiry"], errors="coerce")
+        reference = pd.Timestamp.utcnow().tz_localize(None).normalize()
+        dte = (expiry.dt.tz_localize(None).dt.normalize() - reference).dt.days.clip(lower=1, upper=30)
+        valid = (weights > 0) & iv.notna() & dte.notna()
+        if not valid.any():
+            return {
+                "up1": None,
+                "down1": None,
+                "up2": None,
+                "down2": None,
+                "sigmaMove": None,
+                "weightedIv": None,
+                "weightedDte": None,
+            }
+
+        w = weights.loc[valid]
+        weighted_iv = float(np.average(iv.loc[valid], weights=w))
+        weighted_dte = float(np.average(dte.loc[valid], weights=w))
+        sigma_move = float(spot_price * weighted_iv * np.sqrt(weighted_dte / 252.0))
+        return {
+            "up1": round(spot_price + sigma_move, 2),
+            "down1": round(spot_price - sigma_move, 2),
+            "up2": round(spot_price + (2.0 * sigma_move), 2),
+            "down2": round(spot_price - (2.0 * sigma_move), 2),
+            "sigmaMove": round(sigma_move, 2),
+            "weightedIv": round(weighted_iv, 4),
+            "weightedDte": round(weighted_dte, 2),
+        }
+
+    @staticmethod
     def _summarize_levels(agg_strikes: List[Dict[str, Any]], raw_list: List[Dict[str, Any]], spot_price: float = 0.0) -> Dict[str, Any]:
         if not agg_strikes:
             return {
@@ -173,13 +230,24 @@ class LevelIntelligenceService:
 
         flip = LevelIntelligenceService.calculate_gamma_flip(agg_strikes, spot_price)
         walls = LevelIntelligenceService.identify_walls(agg_strikes)
-        dex_levels = {
-            "flip": LevelIntelligenceService._calculate_flip_for_metric(agg_strikes, "dex", spot_price),
-            **LevelIntelligenceService._identify_metric_walls(agg_strikes, "dex"),
-        }
         max_pain = LevelIntelligenceService.calculate_max_pain(raw_list)
 
         df_agg = pd.DataFrame(agg_strikes)
+
+        def _greek_levels(metric: str) -> Dict[str, Any]:
+            return {
+                "flip": LevelIntelligenceService._calculate_flip_for_metric(agg_strikes, metric, spot_price),
+                **LevelIntelligenceService._identify_metric_walls(agg_strikes, metric),
+            }
+
+        dex_levels   = _greek_levels("dex")
+        lambda_levels = _greek_levels("lex")
+        vanna_levels = _greek_levels("vex")    # vex = vanna exposure
+        charm_levels = _greek_levels("chex")   # chex = charm exposure
+        speed_levels = _greek_levels("spex")   # spex = speed exposure
+        zomma_levels = _greek_levels("zomex")  # zomex = zomma exposure
+        vomma_levels = _greek_levels("vomex")  # vomex = vomma exposure
+
         if not df_agg.empty and 'vex' in df_agg.columns and not df_agg['vex'].isna().all():
             vanna_magnet = float(df_agg.loc[df_agg['vex'].abs().idxmax(), 'strike'])
         else:
@@ -200,6 +268,15 @@ class LevelIntelligenceService:
             "vannaMagnet": vanna_magnet,
             "majorWalls": walls.get("majorWalls"),
             "dex": dex_levels,
+            "lambda": {
+                **lambda_levels,
+                "bands": LevelIntelligenceService._calculate_lambda_bands(raw_list, spot_price),
+            },
+            "vanna": vanna_levels,
+            "charm": charm_levels,
+            "speed": speed_levels,
+            "zomma": zomma_levels,
+            "vomma": vomma_levels,
             "derived": LevelIntelligenceService._derive_relevant_levels(agg_strikes, raw_list, spot_price),
         }
 
@@ -333,17 +410,23 @@ class LevelIntelligenceService:
 
         by_dte = []
         for dte, dte_df in df_raw.groupby("dte"):
+            available = set(dte_df.columns)
+            agg_spec = {
+                "gex": "sum",
+                "dex": "sum",
+                "lex": "sum",
+                "vex": "sum",
+                "chex": "sum",
+                "openInterest": "sum",
+                "volume": "sum",
+                "iv": "mean",
+            }
+            for col in ("spex", "zomex", "vomex"):
+                if col in available:
+                    agg_spec[col] = "sum"
             agg = (
                 dte_df.groupby("strike")
-                .agg({
-                    "gex": "sum",
-                    "dex": "sum",
-                    "vex": "sum",
-                    "chex": "sum",
-                    "openInterest": "sum",
-                    "volume": "sum",
-                    "iv": "mean",
-                })
+                .agg(agg_spec)
                 .reset_index()
             )
             expiry_value = dte_df["expiry"].iloc[0]

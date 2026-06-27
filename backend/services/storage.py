@@ -67,6 +67,9 @@ class SnapshotStorageService:
             return None
         return json.loads(snapshot_path.read_text(encoding="utf-8"))
 
+    def snapshot_exists(self, ticker: str, snapshot_date: str) -> bool:
+        return self._snapshot_path(ticker, snapshot_date).exists()
+
     def _make_json_safe(self, value: Any) -> Any:
         if isinstance(value, dict):
             return {str(key): self._make_json_safe(item) for key, item in value.items()}

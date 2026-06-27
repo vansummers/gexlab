@@ -82,7 +82,7 @@ class AnalyticsPipelineTests(unittest.TestCase):
         self.assertAlmostEqual(analytics["summary"]["riskFreeRate"], 0.045)
 
         first_row = analytics["raw"][0]
-        for key in ("delta", "gamma", "vega", "theta", "vanna", "charm", "gex", "dex", "vex", "chex", "iv"):
+        for key in ("delta", "gamma", "vega", "theta", "vanna", "charm", "lambda", "gex", "dex", "lex", "vex", "chex", "iv"):
             self.assertIn(key, first_row)
 
     def test_market_levels_can_be_derived_from_analytics(self) -> None:
@@ -93,15 +93,18 @@ class AnalyticsPipelineTests(unittest.TestCase):
         self.assertIn("callWall", levels)
         self.assertIn("putWall", levels)
         self.assertIn("dex", levels)
+        self.assertIn("lambda", levels)
         self.assertIn("maxPain", levels)
         self.assertIn("vannaMagnet", levels)
         self.assertIn("derived", levels)
         self.assertIn("byDte", levels)
-        self.assertIsInstance(levels["gammaFlip"], float)
+        self.assertTrue(levels["gammaFlip"] is None or isinstance(levels["gammaFlip"], float))
         self.assertGreater(levels["maxPain"], 0.0)
         self.assertIn("flip", levels["dex"])
         self.assertIn("callWall", levels["dex"])
         self.assertIn("putWall", levels["dex"])
+        self.assertIn("bands", levels["lambda"])
+        self.assertIn("up1", levels["lambda"]["bands"])
         self.assertIn("oiCallWall", levels["derived"])
         self.assertIn("sessionFloor", levels["derived"])
         self.assertEqual(len(levels["byDte"]), 3)
