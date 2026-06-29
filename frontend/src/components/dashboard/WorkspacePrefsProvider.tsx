@@ -62,7 +62,7 @@ export function WorkspacePrefsProvider({ children }: { children: React.ReactNode
   const [hydrated, setHydrated] = useState(false);
   const [ticker, setTicker] = useState<Ticker>('SPY');
   const [priceMode, setPriceMode] = useState<PriceMode>('etf');
-  const [selectedDate, setSelectedDate] = useState<string>('eod');
+  const [selectedDate, setSelectedDate] = useState<string>('live');
   const [sessionMode, setSessionMode] = useState('Market Session');
   const [navOrder, setNavOrder] = useState<string[]>([...DEFAULT_NAV_ORDER]);
 
@@ -74,7 +74,9 @@ export function WorkspacePrefsProvider({ children }: { children: React.ReactNode
 
     if (storedTicker === 'SPY' || storedTicker === 'QQQ') setTicker(storedTicker);
     if (storedPriceMode === 'etf' || storedPriceMode === 'futures') setPriceMode(storedPriceMode);
-    if (storedSnapshotDate) setSelectedDate(storedSnapshotDate);
+    // Only restore 'live' or 'eod' tokens — specific dates reference snapshots that
+    // may not exist on the current deployment (Railway uses an ephemeral filesystem).
+    if (storedSnapshotDate === 'live' || storedSnapshotDate === 'eod') setSelectedDate(storedSnapshotDate);
     if (storedNavOrder) {
       try {
         setNavOrder(normalizeNavOrder(JSON.parse(storedNavOrder)));
