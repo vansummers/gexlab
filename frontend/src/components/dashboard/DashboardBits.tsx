@@ -199,7 +199,7 @@ export function AristocratMetric({
   valueLabel?: string;
   icon?: React.ReactNode;
 }) {
-  const display = valueLabel ?? formatCompactNumber(value);
+  const display = valueLabel ?? (value != null ? formatCompactNumber(value) : '—');
 
   return (
     <div className="rounded-2xl border border-[#e6dfd3] bg-white/84 p-5 shadow-[0_4px_16px_rgba(45,33,17,0.04)] dark:border-white/10 dark:bg-white/6 dark:shadow-[0_4px_16px_rgba(0,0,0,0.22)]">
