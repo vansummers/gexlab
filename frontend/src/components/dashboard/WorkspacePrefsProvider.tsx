@@ -74,9 +74,12 @@ export function WorkspacePrefsProvider({ children }: { children: React.ReactNode
 
     if (storedTicker === 'SPY' || storedTicker === 'QQQ') setTicker(storedTicker);
     if (storedPriceMode === 'etf' || storedPriceMode === 'futures') setPriceMode(storedPriceMode);
-    // Only restore 'live' or 'eod' tokens — specific dates reference snapshots that
+    // Only restore 'live' or 'eod' — specific date strings reference snapshots that
     // may not exist on the current deployment (Railway uses an ephemeral filesystem).
-    if (storedSnapshotDate === 'live' || storedSnapshotDate === 'eod') setSelectedDate(storedSnapshotDate);
+    // DashboardWorkspace will further fall back 'eod' → 'live' if no snapshots exist.
+    if (storedSnapshotDate === 'live' || storedSnapshotDate === 'eod') {
+      setSelectedDate(storedSnapshotDate);
+    }
     if (storedNavOrder) {
       try {
         setNavOrder(normalizeNavOrder(JSON.parse(storedNavOrder)));

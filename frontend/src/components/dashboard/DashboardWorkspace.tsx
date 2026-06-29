@@ -124,7 +124,10 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
         const response = await fetchSnapshotDates(ticker);
         if (cancelled) return;
         setAvailableDates(response.dates);
-        if (selectedDate !== 'live' && selectedDate !== 'eod' && !response.dates.includes(selectedDate)) {
+        // If not in live mode and no snapshots exist, fall back to live.
+        if (selectedDate !== 'live' && response.dates.length === 0) {
+          setSelectedDate('live');
+        } else if (selectedDate !== 'live' && selectedDate !== 'eod' && !response.dates.includes(selectedDate)) {
           setSelectedDate('eod');
         }
       } catch (err) {
