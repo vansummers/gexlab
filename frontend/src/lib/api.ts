@@ -31,3 +31,4 @@ export const fetchSnapshotDates = (ticker: string) => get<SnapshotDatesResponse>
 export const fetchHistoricalSnapshot = (ticker: string, date: string) =>
   get<HistoricalSnapshotResponse>(`/api/history/${ticker}/${date}`);
 export const fetchMacroEvents = () => get<MacroEventsResponse>('/api/events/macro');
+export const fetchCombinedBridge = () => get<Record<string, unknown>>('/api/metrics/bridge');
