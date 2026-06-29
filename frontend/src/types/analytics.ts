@@ -206,6 +206,8 @@ export interface MacroEvent {
   expected?: string | null;
   actual?: string | null;
   previous?: string | null;
+  ticker?: string;
+  type?: string;
 }
 
 export interface MacroEventsResponse {

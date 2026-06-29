@@ -2466,8 +2466,8 @@ function buildSessionChangeBadges(
 
   return [
     { label: 'Spot', ...buildDelta(analytics.summary.spotPrice, comparison?.summary.spotPrice, (value) => formatCurrency(value)) },
-    { label: 'Net GEX', ...buildDelta(analytics.summary.totalNetGex, comparison?.summary.totalNetGex, (value) => formatCompactNumber(value)) },
-    { label: 'Net DEX', ...buildDelta(analytics.summary.totalNetDex, comparison?.summary.totalNetDex, (value) => formatCompactNumber(value)) },
+    { label: 'Net GEX', ...buildDelta(analytics.summary.totalNetGex, comparison?.summary.totalNetGex, (value) => formatCompactNumber(value ?? 0)) },
+    { label: 'Net DEX', ...buildDelta(analytics.summary.totalNetDex, comparison?.summary.totalNetDex, (value) => formatCompactNumber(value ?? 0)) },
     { label: 'Gamma Flip', ...buildDelta(analytics.levels?.gammaFlip, comparison?.levels?.gammaFlip, (value) => formatCurrency(value)) },
     { label: 'DEX Flip', ...buildDelta(analytics.levels?.dex?.flip, comparison?.levels?.dex?.flip, (value) => formatCurrency(value)) },
   ];
@@ -2549,7 +2549,7 @@ function buildEventMarkers(
     .map((event) => ({
       date: event.date,
       label: event.label,
-      note: `${event.type.toUpperCase()} marker from local config.`,
+      note: `${(event.type ?? 'custom').toUpperCase()} marker from local config.`,
       impact: event.type === 'macro' ? 'high' : 'medium',
       source: 'Local Config',
     }));

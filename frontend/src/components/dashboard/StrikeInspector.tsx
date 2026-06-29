@@ -62,7 +62,7 @@ export function StrikeInspector({
         <InspectorMetric label="Strike GEX" value={formatCompactNumber(selectedStrikeData.gex)} />
         <InspectorMetric label="Strike DEX" value={formatCompactNumber(selectedStrikeData.dex)} />
         <InspectorMetric label="Strike VEX" value={formatCompactNumber(selectedStrikeData.vex)} />
-        <InspectorMetric label="Strike CHEX" value={formatCompactNumber(selectedStrikeData.chex)} />
+        <InspectorMetric label="Strike CHEX" value={formatCompactNumber(selectedStrikeData.chex ?? 0)} />
         <InspectorMetric label="Call OI" value={formatCompactNumber(sumBy(calls, 'openInterest'))} />
         <InspectorMetric label="Put OI" value={formatCompactNumber(sumBy(puts, 'openInterest'))} />
         <InspectorMetric label="Call Volume" value={formatCompactNumber(sumBy(calls, 'volume'))} />
