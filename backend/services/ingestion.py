@@ -1,7 +1,7 @@
 import httpx
 import pandas as pd
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 logging.basicConfig(level=logging.INFO)
@@ -52,7 +52,7 @@ class GexIngestionService:
         Fetch options chain from CBOE for the next N expiries.
         Implements basic caching.
         """
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         if self.last_fetch_time and (now - self.last_fetch_time).total_seconds() < self.cache_expiry_seconds:
             logger.info("Returning cached options chain data")

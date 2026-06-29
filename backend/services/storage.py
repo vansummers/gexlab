@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -32,7 +32,7 @@ class SnapshotStorageService:
         snapshot_date: Optional[str] = None,
         source: str = "auto",
     ) -> Path:
-        saved_at = datetime.now().isoformat()
+        saved_at = datetime.now(timezone.utc).isoformat()
         effective_date = snapshot_date or saved_at[:10]
         payload = {
             "ticker": ticker.upper(),

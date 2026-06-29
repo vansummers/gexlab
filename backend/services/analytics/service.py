@@ -3,7 +3,7 @@ import httpx
 import numpy as np
 import pandas as pd
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any
 from services.analytics.engine import GreeksEngine
 
@@ -20,7 +20,7 @@ class GexAnalyticsService:
 
     def get_risk_free_rate(self) -> float:
         """Fetch 13-week T-bill yield (DTB3) from FRED, cached for 1 hour."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         if (
             self._rfr_cache is not None
             and self._rfr_fetched_at is not None
@@ -68,7 +68,7 @@ class GexAnalyticsService:
         K = df_raw['strike'].values
 
         # Calculate Time to Expiration (T) in years
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         df_raw['expiry_dt'] = pd.to_datetime(df_raw['expiry'])
         T = (df_raw['expiry_dt'] - now).dt.total_seconds() / (365 * 24 * 3600)
         T = np.maximum(T, 1e-5) # Prevent division by zero for expired contracts
