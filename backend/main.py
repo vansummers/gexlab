@@ -9,7 +9,6 @@ import logging
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 from services.ingestion import GexIngestionService
-from services.basis import BasisService
 from services.analytics.service import GexAnalyticsService
 from services.analytics.levels import LevelIntelligenceService
 from services.analytics.bridge import BridgeService
@@ -111,10 +110,8 @@ async def update_data_loop():
                 logger.info(f"Background update starting for {ticker}...")
                 ingestion = ingestion_services[ticker]
 
-                # yfinance calls are blocking I/O — run on a thread pool thread so
-                # the event loop stays responsive to API requests.
                 raw_data = await asyncio.to_thread(ingestion.fetch_full_chain, expiries_to_fetch=3)
-                basis_data = await asyncio.to_thread(BasisService.get_futures_basis, ticker)
+                basis_data: dict = {}
 
                 analytics = None
                 spot = raw_data.get("spotPrice") or 0.0
@@ -203,15 +200,6 @@ async def get_raw_metrics() -> RawMetricsResponse:
         "metrics": result,
         "basis": {ticker: state["data"][ticker]["basis"] for ticker in TICKERS},
     }
-
-
-@app.get("/api/metrics/basis")
-async def get_basis_metrics():
-    out = {}
-    for ticker in TICKERS:
-        async with _state_locks[ticker]:
-            out[ticker] = state["data"][ticker]["basis"]
-    return {"basis": out}
 
 
 @app.get("/api/metrics/analytics/{ticker}", response_model=AnalyticsResponse | ErrorResponse)
