@@ -1,0 +1,147 @@
+// GexLab Levels Indicator
+// Paste the bridge payload from GexLab into the "Bridge Payload" input.
+// Enter the aggregated levels from the Overview page manually.
+// Re-paste the payload any time the market map updates.
+//@version=5
+indicator("GexLab Levels", overlay=true, max_lines_count=50, max_labels_count=50)
+
+// ─── Bridge Payload ────────────────────────────────────────────────────────
+// Paste the output of "Copy Bridge" from GexLab Studio here.
+bridge = input.string(
+     '{"d0cw":null,"d0pw":null,"d0vt":null,"d1cw":null,"d1pw":null,"d1vt":null}',
+     title="Bridge Payload",
+     tooltip="Click Copy Bridge in GexLab then paste the result here.")
+
+// ─── Aggregated Level Inputs (read from GexLab Overview) ──────────────────
+grp_agg = "Aggregated Levels (from Overview)"
+show_agg   = input.bool(true,  "Show Aggregated Levels", group=grp_agg)
+agg_gflip  = input.float(0.0,  "Gamma Flip",  group=grp_agg)
+agg_cwall  = input.float(0.0,  "Call Wall",   group=grp_agg)
+agg_pwall  = input.float(0.0,  "Put Wall",    group=grp_agg)
+agg_maxpain= input.float(0.0,  "Max Pain",    group=grp_agg)
+agg_vanna  = input.float(0.0,  "Vanna Peak",  group=grp_agg)
+
+// ─── DTE Display Toggles ──────────────────────────────────────────────────
+grp_dte = "DTE Packs (from Bridge Payload)"
+show_0dte = input.bool(true, "Show 0DTE Levels", group=grp_dte)
+show_1dte = input.bool(true, "Show 1DTE Levels", group=grp_dte)
+
+// ─── JSON Parser ──────────────────────────────────────────────────────────
+// Extracts a numeric value from a compact JSON string by key name.
+parse_field(json, key) =>
+    search = '"' + key + '":'
+    idx = str.pos(json, search)
+    result = float(na)
+    if not na(idx)
+        start = idx + str.length(search)
+        rest = str.substring(json, start)
+        end_comma = str.pos(rest, ",")
+        end_brace = str.pos(rest, "}")
+        end_pos = na(end_comma) ? end_brace : na(end_brace) ? end_comma : math.min(end_comma, end_brace)
+        if not na(end_pos)
+            val_str = str.substring(rest, 0, end_pos)
+            if val_str != "null"
+                result := str.tonumber(val_str)
+    result
+
+// ─── Parse Bridge Payload ─────────────────────────────────────────────────
+d0cw = parse_field(bridge, "d0cw")
+d0pw = parse_field(bridge, "d0pw")
+d0vt = parse_field(bridge, "d0vt")
+d1cw = parse_field(bridge, "d1cw")
+d1pw = parse_field(bridge, "d1pw")
+d1vt = parse_field(bridge, "d1vt")
+
+// ─── Line State ───────────────────────────────────────────────────────────
+var line l_gflip   = na
+var line l_cwall   = na
+var line l_pwall   = na
+var line l_maxpain = na
+var line l_vanna   = na
+var line l_d0cw    = na
+var line l_d0pw    = na
+var line l_d0vt    = na
+var line l_d1cw    = na
+var line l_d1pw    = na
+var line l_d1vt    = na
+
+var label lb_gflip   = na
+var label lb_cwall   = na
+var label lb_pwall   = na
+var label lb_maxpain = na
+var label lb_vanna   = na
+var label lb_d0cw    = na
+var label lb_d0pw    = na
+var label lb_d0vt    = na
+var label lb_d1cw    = na
+var label lb_d1pw    = na
+var label lb_d1vt    = na
+
+// ─── Draw Helper ──────────────────────────────────────────────────────────
+make_line(price, col, ls) =>
+    line.new(bar_index - 100, price, bar_index, price,
+         color=col, width=1, style=ls, extend=extend.right)
+
+make_label(price, txt, col) =>
+    label.new(bar_index + 2, price, txt,
+         color=color.new(col, 85), textcolor=col,
+         style=label.style_label_left, size=size.small)
+
+// ─── Redraw on Last Bar ───────────────────────────────────────────────────
+if barstate.islast
+
+    // — Aggregated levels —
+    line.delete(l_gflip),   label.delete(lb_gflip)
+    line.delete(l_cwall),   label.delete(lb_cwall)
+    line.delete(l_pwall),   label.delete(lb_pwall)
+    line.delete(l_maxpain), label.delete(lb_maxpain)
+    line.delete(l_vanna),   label.delete(lb_vanna)
+
+    if show_agg
+        if agg_gflip > 0
+            l_gflip   := make_line(agg_gflip,   color.yellow,        line.style_solid)
+            lb_gflip  := make_label(agg_gflip,  "GEX Flip " + str.tostring(agg_gflip, "#.00"),  color.yellow)
+        if agg_cwall > 0
+            l_cwall   := make_line(agg_cwall,   color.teal,          line.style_solid)
+            lb_cwall  := make_label(agg_cwall,  "Call Wall " + str.tostring(agg_cwall, "#.00"), color.teal)
+        if agg_pwall > 0
+            l_pwall   := make_line(agg_pwall,   color.red,           line.style_solid)
+            lb_pwall  := make_label(agg_pwall,  "Put Wall " + str.tostring(agg_pwall, "#.00"),  color.red)
+        if agg_maxpain > 0
+            l_maxpain := make_line(agg_maxpain, color.orange,        line.style_dashed)
+            lb_maxpain:= make_label(agg_maxpain,"Max Pain " + str.tostring(agg_maxpain, "#.00"),color.orange)
+        if agg_vanna > 0
+            l_vanna   := make_line(agg_vanna,   color.purple,        line.style_dotted)
+            lb_vanna  := make_label(agg_vanna,  "Vanna Peak " + str.tostring(agg_vanna, "#.00"),color.purple)
+
+    // — 0DTE levels —
+    line.delete(l_d0cw), label.delete(lb_d0cw)
+    line.delete(l_d0pw), label.delete(lb_d0pw)
+    line.delete(l_d0vt), label.delete(lb_d0vt)
+
+    if show_0dte
+        if not na(d0cw) and d0cw > 0
+            l_d0cw  := make_line(d0cw, color.new(color.teal, 50),   line.style_dashed)
+            lb_d0cw := make_label(d0cw,"0DTE CW " + str.tostring(d0cw, "#.00"),  color.new(color.teal, 30))
+        if not na(d0pw) and d0pw > 0
+            l_d0pw  := make_line(d0pw, color.new(color.red, 50),    line.style_dashed)
+            lb_d0pw := make_label(d0pw,"0DTE PW " + str.tostring(d0pw, "#.00"),  color.new(color.red, 30))
+        if not na(d0vt) and d0vt > 0
+            l_d0vt  := make_line(d0vt, color.new(color.yellow, 50), line.style_dashed)
+            lb_d0vt := make_label(d0vt,"0DTE Flip " + str.tostring(d0vt, "#.00"),color.new(color.yellow, 30))
+
+    // — 1DTE levels —
+    line.delete(l_d1cw), label.delete(lb_d1cw)
+    line.delete(l_d1pw), label.delete(lb_d1pw)
+    line.delete(l_d1vt), label.delete(lb_d1vt)
+
+    if show_1dte
+        if not na(d1cw) and d1cw > 0
+            l_d1cw  := make_line(d1cw, color.new(color.teal, 70),   line.style_dotted)
+            lb_d1cw := make_label(d1cw,"1DTE CW " + str.tostring(d1cw, "#.00"),  color.new(color.teal, 50))
+        if not na(d1pw) and d1pw > 0
+            l_d1pw  := make_line(d1pw, color.new(color.red, 70),    line.style_dotted)
+            lb_d1pw := make_label(d1pw,"1DTE PW " + str.tostring(d1pw, "#.00"),  color.new(color.red, 50))
+        if not na(d1vt) and d1vt > 0
+            l_d1vt  := make_line(d1vt, color.new(color.yellow, 70), line.style_dotted)
+            lb_d1vt := make_label(d1vt,"1DTE Flip " + str.tostring(d1vt, "#.00"),color.new(color.yellow, 50))

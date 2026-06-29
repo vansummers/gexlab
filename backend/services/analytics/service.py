@@ -1,6 +1,7 @@
+import os
+import httpx
 import numpy as np
 import pandas as pd
-import yfinance as yf
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any
@@ -9,6 +10,7 @@ from services.analytics.engine import GreeksEngine
 logger = logging.getLogger("analytics_service")
 
 _RFR_CACHE_TTL = timedelta(hours=1)
+_FRED_URL = "https://api.stlouisfed.org/fred/series/observations"
 
 class GexAnalyticsService:
     def __init__(self):
@@ -17,7 +19,7 @@ class GexAnalyticsService:
         self._rfr_fetched_at: datetime | None = None
 
     def get_risk_free_rate(self) -> float:
-        """Fetch 13-week T-bill yield (^IRX), cached for 1 hour."""
+        """Fetch 13-week T-bill yield (DTB3) from FRED, cached for 1 hour."""
         now = datetime.now()
         if (
             self._rfr_cache is not None
@@ -26,14 +28,25 @@ class GexAnalyticsService:
         ):
             return self._rfr_cache
         try:
-            irx = yf.Ticker("^IRX")
-            rate = irx.fast_info['lastPrice'] / 100.0
+            api_key = os.environ["FRED_API_KEY"]
+            params = {
+                "series_id": "DTB3",
+                "api_key": api_key,
+                "file_type": "json",
+                "sort_order": "desc",
+                "limit": 1,
+            }
+            with httpx.Client(timeout=10) as client:
+                resp = client.get(_FRED_URL, params=params)
+                resp.raise_for_status()
+                value = resp.json()["observations"][0]["value"]
+            rate = float(value) / 100.0
             if rate > 0:
                 self._rfr_cache = rate
                 self._rfr_fetched_at = now
                 return rate
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"FRED RFR fetch failed: {e}")
         return self._rfr_cache if self._rfr_cache is not None else 0.045
 
     def process_chain(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -49,22 +62,22 @@ class GexAnalyticsService:
         # Approximate dividend yields: SPY ~1.5%, QQQ ~0.6%
         ticker = raw_data.get("symbol", "SPY").upper()
         q = 0.006 if ticker == "QQQ" else 0.015
-        
+
         # Prepare inputs for engine
         S = np.full(len(df_raw), spot)
         K = df_raw['strike'].values
-        
+
         # Calculate Time to Expiration (T) in years
         now = datetime.now()
         df_raw['expiry_dt'] = pd.to_datetime(df_raw['expiry'])
         T = (df_raw['expiry_dt'] - now).dt.total_seconds() / (365 * 24 * 3600)
         T = np.maximum(T, 1e-5) # Prevent division by zero for expired contracts
-        
+
         # Implied Volatility — fill NaN with a neutral 20% default before flooring
         # so a single missing IV doesn't propagate NaN through all Greeks.
         sigma = df_raw['impliedVolatility'].fillna(0.2).values
         sigma = np.maximum(sigma, 0.01)
-        
+
         flags = df_raw['type'].map({'call': 'c', 'put': 'p'}).values
 
         # 1. Calculate Standard Greeks
@@ -80,12 +93,8 @@ class GexAnalyticsService:
 
         # 2. Calculate Higher Order Greeks — reuse d1/d2/sqrt_t already in greeks
         higher = self.engine.calculate_higher_order_greeks(S, K, T, r, q, sigma, flags, _precomputed=greeks)
-        
+
         # 3. Calculate Dealer Exposures (EX)
-        # Exposure = Greek * OpenInterest * Multiplier * SpotPrice (for GEX)
-        # Attribution: Dealers short Calls (Positive Gamma) / short Puts (Negative Gamma)
-        # Note: In standard GEX models, Gamma(total) = (Call Gamma - Put Gamma) * OI * 100 * S^2 * 0.01
-        
         oi = df_raw['openInterest'].fillna(0).values
 
         def numeric_column(name: str) -> np.ndarray:
@@ -100,12 +109,11 @@ class GexAnalyticsService:
         valid_lambda_premium = mid >= 0.05
         raw_lambda = np.where(valid_lambda_premium, delta * spot / np.maximum(mid, 0.05), 0.0)
         option_lambda = np.clip(raw_lambda, -50.0, 50.0)
-        
+
         # GEX (Dollar Gamma per 1% move)
-        # Formula: OI * Gamma * 100 * Spot * Spot * 0.01
         gex_all = oi * gamma * 100 * spot * spot * 0.01
         df_raw['gex'] = np.where(is_call, gex_all, -gex_all)
-        
+
         # DEX (Dollar Delta)
         dex_all = oi * delta * 100 * spot
         df_raw['dex'] = np.where(is_call, dex_all, -dex_all)
@@ -114,7 +122,7 @@ class GexAnalyticsService:
         # Capped and premium-filtered so tiny stale OTM quotes do not dominate.
         lex_all = oi * option_lambda * 100
         df_raw['lex'] = np.where(is_call, lex_all, -lex_all)
-        
+
         # Vanna Exposure (VEX) — delta sensitivity to vol; dealer rehedge pressure on IV moves
         vex_all = oi * higher['vanna'] * 100 * spot
         df_raw['vex'] = np.where(is_call, vex_all, -vex_all)
@@ -162,15 +170,14 @@ class GexAnalyticsService:
             'volume': 'sum',
             'iv': 'mean',
         }).reset_index()
-        
+
         # Metrics summary
         total_gex = df_raw['gex'].sum()
         total_dex = df_raw['dex'].sum()
-        
-        # Metadata for Surface
-        # Group by Expiry then Strike to build matrix
+
+        # Group by Expiry then Strike to build IV surface matrix
         pivoted = df_raw.pivot_table(index='expiry', columns='strike', values='iv', aggfunc='mean').fillna(0)
-        
+
         surface = {
             "expiries": pivoted.index.tolist(),
             "strikes": pivoted.columns.tolist(),

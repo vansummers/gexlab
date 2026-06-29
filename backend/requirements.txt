@@ -1,7 +1,7 @@
 fastapi
-uvicorn
-yfinance
+uvicorn[standard]
 pandas
 httpx
 numpy
 scipy
+python-dotenv
