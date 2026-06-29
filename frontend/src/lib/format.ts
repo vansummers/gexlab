@@ -8,12 +8,12 @@ export function formatCurrency(value: number | null | undefined, decimals = 2): 
   }).format(value);
 }
 
-export function formatCompactNumber(value: number): string {
+export function formatCompactNumber(value: number, decimals = 2): string {
   const abs = Math.abs(value);
-  if (abs >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
-  if (abs >= 1e3) return `${(value / 1e3).toFixed(2)}K`;
-  return value.toFixed(2);
+  if (abs >= 1e9) return `${(value / 1e9).toFixed(decimals)}B`;
+  if (abs >= 1e6) return `${(value / 1e6).toFixed(decimals)}M`;
+  if (abs >= 1e3) return `${(value / 1e3).toFixed(decimals)}K`;
+  return value.toFixed(decimals);
 }
 
 export function formatPercent(value: number, decimals = 1): string {
