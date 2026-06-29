@@ -8,7 +8,7 @@ import type {
   SnapshotDatesResponse,
 } from '../types/analytics';
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000';
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'https://gexlab-production.up.railway.app';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {

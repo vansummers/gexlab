@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, fetchAnalytics, fetchBasisMetrics, fetchHealth } from '../lib/api';
+import { ApiError, fetchAnalytics, fetchHealth } from '../lib/api';
 import type { AnalyticsResponse, BasisData, HealthResponse } from '../types/analytics';
 
 type Ticker = 'SPY' | 'QQQ';
@@ -64,17 +64,15 @@ export function useMarketData(ticker: Ticker): UseMarketDataResult {
     setStatus(hasExistingData ? 'stale' : 'loading');
 
     try {
-      const [healthResult, analyticsData, basisMetrics] = await Promise.all([
+      const [healthResult, analyticsData] = await Promise.all([
         fetchHealth().catch(() => null),
         fetchAnalytics(ticker),
-        fetchBasisMetrics(),
       ]);
 
       if (!mountedRef.current) return;
 
       if (healthResult) setHealth(healthResult);
       setAnalytics(analyticsData);
-      setBasis(basisMetrics.basis?.[ticker] ?? null);
       setError(null);
       setStatus('ready');
       setAgeMs(analyticsData.summary?.timestamp ? Date.now() - new Date(analyticsData.summary.timestamp).getTime() : null);
