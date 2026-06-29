@@ -31,4 +31,15 @@ export const fetchSnapshotDates = (ticker: string) => get<SnapshotDatesResponse>
 export const fetchHistoricalSnapshot = (ticker: string, date: string) =>
   get<HistoricalSnapshotResponse>(`/api/history/${ticker}/${date}`);
 export const fetchMacroEvents = () => get<MacroEventsResponse>('/api/events/macro');
-export const fetchCombinedBridge = () => get<Record<string, unknown>>('/api/metrics/bridge');
+export interface CombinedBridgeResponse {
+  spy: string;
+  qqq: string;
+  spy_greeks: string;
+  qqq_greeks: string;
+  es: string;
+  nq: string;
+  mnq: string;
+  pine: string;
+  timestamp: string | null;
+}
+export const fetchCombinedBridge = () => get<CombinedBridgeResponse>('/api/metrics/bridge');
