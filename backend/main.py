@@ -50,7 +50,8 @@ state = {
         "SPY": {"raw": {}, "basis": {}, "analytics": {}},
         "QQQ": {"raw": {}, "basis": {}, "analytics": {}}
     },
-    "is_running": False
+    "is_running": False,
+    "last_error": None,
 }
 
 # Per-ticker locks ensure API handlers never read a partially-updated state dict.
@@ -161,6 +162,8 @@ async def update_data_loop():
 
                 logger.info(f"Update successful for {ticker}.")
             except Exception as e:
+                import traceback
+                state["last_error"] = {"ticker": ticker, "error": str(e), "traceback": traceback.format_exc()}
                 logger.exception(f"Error updating {ticker}: {e}")
 
             await asyncio.sleep(2)
@@ -187,6 +190,18 @@ async def health_check() -> HealthResponse:
         "status": "healthy",
         "service": "GexLab v2 Backend",
         "polling": state["is_running"]
+    }
+
+
+@app.get("/api/debug")
+async def debug_info():
+    spy_raw = state["data"]["SPY"]["raw"]
+    return {
+        "last_error": state.get("last_error"),
+        "spy_spot": spy_raw.get("spotPrice"),
+        "spy_timestamp": spy_raw.get("timestamp"),
+        "spy_row_count": len(spy_raw.get("data", [])),
+        "spy_has_analytics": bool(state["data"]["SPY"]["analytics"]),
     }
 
 
