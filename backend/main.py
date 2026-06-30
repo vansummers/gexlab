@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import logging
+import pandas as pd
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 from services.ingestion import GexIngestionService
@@ -130,6 +131,14 @@ async def update_data_loop():
                         analytics["summary"]["timestamp"] = (
                             raw_data.get("timestamp") or analytics["summary"]["timestamp"]
                         )
+                        # Trim raw to 5 nearest expiries AFTER levels has used the
+                        # full dataset — keeps the API payload small while byDte
+                        # still covers all fetched expiries.
+                        raw_rows = analytics.get("raw", [])
+                        if raw_rows:
+                            _df = pd.DataFrame(raw_rows)
+                            _near = sorted(_df["expiry"].unique())[:5]
+                            analytics["raw"] = _df[_df["expiry"].isin(_near)].to_dict(orient="records")
                 else:
                     logger.warning(
                         f"Skipping analytics for {ticker}: "
