@@ -137,12 +137,16 @@ async def update_data_loop():
                         f"no data or zero spot price (spot={spot})"
                     )
 
-                # Write all keys together after all async work is done so API
-                # handlers never observe a partially-updated state.
+                # Always persist raw data first so the debug endpoint shows
+                # ingestion results even if analytics or levels crashes.
                 async with _state_locks[ticker]:
                     state["data"][ticker]["raw"] = raw_data
                     state["data"][ticker]["basis"] = basis_data
-                    if analytics is not None:
+
+                # Write analytics separately — a levels crash above would have
+                # skipped this block via exception, but raw is already saved.
+                if analytics is not None:
+                    async with _state_locks[ticker]:
                         state["data"][ticker]["analytics"] = analytics
 
                 snapshot_date = get_eod_snapshot_date()
