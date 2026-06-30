@@ -115,12 +115,12 @@ class DerivedLevelsModel(BaseModel):
 class BaseLevelsModel(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    gammaFlip: float
+    gammaFlip: Optional[float] = None
     callWall: Optional[float] = None
     putWall: Optional[float] = None
     sessionCeiling: Optional[float] = None
-    maxPain: float
-    vannaMagnet: float
+    maxPain: Optional[float] = None
+    vannaMagnet: Optional[float] = None
     majorWalls: Optional[MajorWallsModel] = None
     dex: Optional[DexLevelsModel] = None
     lambda_: Optional[LambdaLevelsModel] = Field(default=None, alias="lambda")
