@@ -88,7 +88,7 @@ export function LevelsBoard({ levels, spot, statusLabel }: LevelsBoardProps) {
           <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.3em] text-[#8a7d68] dark:text-[#c8bbab]">Expiry Packs</p>
-              <h3 className="mt-2 text-2xl font-light tracking-[-0.03em] text-[#1D1D1F] dark:text-[#f5efe3]">0DTE through 5DTE map</h3>
+              <h3 className="mt-2 text-2xl font-light tracking-[-0.03em] text-[#1D1D1F] dark:text-[#f5efe3]">Levels by expiry, 0DTE through 45DTE</h3>
               <p className="mt-2 max-w-3xl text-sm leading-relaxed text-[#6d6255] dark:text-[#a79b8b]">
                 These are the same near-expiry level packs exported to the TradingView bridge, surfaced here so the app and Pine view stay aligned.
               </p>
@@ -270,7 +270,7 @@ function buildPriorityStrip(levels: LevelsPayload, spot: number) {
 
 function buildDteBuckets(levels: LevelsPayload, spot: number) {
   return (levels?.byDte ?? [])
-    .filter((entry) => entry.dte >= 0 && entry.dte <= 5)
+    .filter((entry) => entry.dte >= 0)
     .map((entry) => ({
       title: `${entry.dte}DTE`,
       expiry: entry.expiry,

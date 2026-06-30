@@ -457,7 +457,7 @@ class LevelIntelligenceService:
 
         df_raw = df_raw.loc[valid_expiry].copy()
         df_raw["dte"] = (df_raw["expiry_dt"] - reference_date).dt.days
-        df_raw = df_raw[(df_raw["dte"] >= 0) & (df_raw["dte"] <= 5)]
+        df_raw = df_raw[df_raw["dte"] >= 0]
 
         by_dte = []
         for dte, dte_df in df_raw.groupby("dte"):

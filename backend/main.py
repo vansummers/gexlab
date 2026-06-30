@@ -110,7 +110,7 @@ async def update_data_loop():
                 logger.info(f"Background update starting for {ticker}...")
                 ingestion = ingestion_services[ticker]
 
-                raw_data = await asyncio.to_thread(ingestion.fetch_full_chain, expiries_to_fetch=3)
+                raw_data = await asyncio.to_thread(ingestion.fetch_full_chain, expiries_to_fetch=20)
                 basis_data: dict = {}
 
                 analytics = None
