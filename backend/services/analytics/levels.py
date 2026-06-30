@@ -450,9 +450,10 @@ class LevelIntelligenceService:
             errors="coerce"
         )
         if pd.isna(reference_timestamp):
-            reference_date = pd.Timestamp.utcnow().normalize()
+            reference_date = pd.Timestamp(pd.Timestamp.utcnow().date())
         else:
-            reference_date = reference_timestamp.normalize()
+            # Strip timezone so subtraction against tz-naive expiry_dt doesn't raise.
+            reference_date = pd.Timestamp(reference_timestamp.date())
 
         df_raw = df_raw.loc[valid_expiry].copy()
         df_raw["dte"] = (df_raw["expiry_dt"] - reference_date).dt.days
