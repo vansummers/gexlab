@@ -1,6 +1,7 @@
 import httpx
 import pandas as pd
 import logging
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
@@ -65,7 +66,9 @@ class GexIngestionService:
             return {}
 
         cboe_data = payload.get("data", {})
-        spot_price = cboe_data.get("current_price") or cboe_data.get("close") or 0.0
+        # CBOE removed the current_price/close field from the data object.
+        # Try legacy fields first; fall back to put-call parity derivation below.
+        spot_price: float = cboe_data.get("current_price") or cboe_data.get("close") or 0.0
         options_raw: List[Dict] = cboe_data.get("options", [])
 
         if not options_raw:
@@ -83,6 +86,30 @@ class GexIngestionService:
 
         all_expiries = sorted({r["expiry"] for r in parsed})
         selected_expiries = set(all_expiries[:expiries_to_fetch])
+
+        # Derive spot from put-call parity if CBOE didn't supply a price field.
+        # At the nearest expiry, the strike where |call_mid - put_mid| is minimized
+        # equals the ATM strike ≈ spot price.
+        if not spot_price and all_expiries:
+            nearest = all_expiries[0]
+            by_strike: Dict[float, Dict[str, float]] = defaultdict(dict)
+            for r in parsed:
+                if r["expiry"] != nearest:
+                    continue
+                bid = r.get("bid") or 0.0
+                ask = r.get("ask") or 0.0
+                mid = (bid + ask) / 2.0
+                if mid > 0:
+                    by_strike[r["strike"]][r["type"]] = mid
+            best_diff = float("inf")
+            for strike, sides in by_strike.items():
+                if "call" in sides and "put" in sides:
+                    diff = abs(sides["call"] - sides["put"])
+                    if diff < best_diff:
+                        best_diff = diff
+                        spot_price = strike
+            if spot_price:
+                logger.info(f"Derived spot price for {self.ticker_symbol} from put-call parity: {spot_price}")
         logger.info(f"Fetching chains for {self.ticker_symbol}: {sorted(selected_expiries)}")
 
         rows = []
@@ -128,10 +155,8 @@ class GexIngestionService:
     def get_spot_price(self) -> float:
         """Fetch the current spot price from CBOE."""
         try:
-            payload = self._fetch_cboe()
-            d = payload.get("data", {})
-            price = d.get("current_price") or d.get("close")
-            return float(price) if price else 0.0
+            data = self.fetch_full_chain(expiries_to_fetch=1)
+            return float(data.get("spotPrice") or 0.0)
         except Exception as e:
             logger.error(f"Error fetching price for {self.ticker_symbol}: {e}")
             return 0.0
