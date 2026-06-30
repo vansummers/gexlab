@@ -67,8 +67,10 @@ class GexAnalyticsService:
         S = np.full(len(df_raw), spot)
         K = df_raw['strike'].values
 
-        # Calculate Time to Expiration (T) in years
-        now = datetime.now(timezone.utc)
+        # Calculate Time to Expiration (T) in years.
+        # Use naive local time here — expiry strings are date-only (no tz) so pandas
+        # needs a naive reference point to subtract without raising TypeError.
+        now = datetime.now()
         df_raw['expiry_dt'] = pd.to_datetime(df_raw['expiry'])
         T = (df_raw['expiry_dt'] - now).dt.total_seconds() / (365 * 24 * 3600)
         T = np.maximum(T, 1e-5) # Prevent division by zero for expired contracts
@@ -190,7 +192,7 @@ class GexAnalyticsService:
                 "totalNetDex": total_dex,
                 "spotPrice": spot,
                 "riskFreeRate": r,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             },
             "strikes": agg.to_dict(orient="records"),
             "surface": surface,
