@@ -177,3 +177,4 @@ init_*_output.json
 # Runtime market data/cache artifacts
 data/snapshots/
 data/macro_events/latest.json
+.env*

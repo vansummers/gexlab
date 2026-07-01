@@ -5,38 +5,32 @@ from services.analytics.bridge import BridgeService
 
 
 class BridgePayloadTests(unittest.TestCase):
-    def test_generate_tv_payload_contains_near_dte_levels_in_futures_space(self) -> None:
+    def test_generate_tv_payload_emits_etf_space_multi_dte_levels(self) -> None:
+        # The GexLab Levels indicator is plotted on the ETF chart, so the payload
+        # stays in ETF price space. Packs cover 0/1/7/14/30/45 DTE, each matched
+        # to the nearest available expiry; tiers with no expiry come out null.
         analytics = {
             "levels": {
                 "byDte": [
-                    {
-                        "dte": 0,
-                        "gammaFlip": 499.0,
-                        "callWall": 509.0,
-                        "putWall": 491.0,
-                    },
-                    {
-                        "dte": 1,
-                        "gammaFlip": 498.0,
-                        "callWall": 512.0,
-                        "putWall": 488.0,
-                    },
+                    {"dte": 0,  "gammaFlip": 499.0, "callWall": 509.0, "putWall": 491.0},
+                    {"dte": 1,  "gammaFlip": 498.0, "callWall": 512.0, "putWall": 488.0},
+                    {"dte": 8,  "gammaFlip": 497.0, "callWall": 520.0, "putWall": 480.0},
+                    {"dte": 31, "gammaFlip": 495.0, "callWall": 540.0, "putWall": 460.0},
                 ],
             }
         }
-        basis = {"etf_price": 500.0, "future_price": 20000.0, "basis": 0.0}
 
-        payload = json.loads(BridgeService.generate_tv_payload(analytics, basis, "QQQ"))
+        payload = json.loads(BridgeService.generate_tv_payload(analytics, {}, "QQQ"))
 
         self.assertEqual(
             payload,
             {
-                "d0cw": 20360.0,
-                "d0pw": 19640.0,
-                "d0vt": 19960.0,
-                "d1cw": 20480.0,
-                "d1pw": 19520.0,
-                "d1vt": 19920.0,
+                "d0cw": 509.0,  "d0pw": 491.0,  "d0vt": 499.0,
+                "d1cw": 512.0,  "d1pw": 488.0,  "d1vt": 498.0,
+                "d7cw": 520.0,  "d7pw": 480.0,  "d7vt": 497.0,   # dte 8 → nearest to 7
+                "d14cw": None,  "d14pw": None,  "d14vt": None,   # no expiry within tolerance
+                "d30cw": 540.0, "d30pw": 460.0, "d30vt": 495.0,  # dte 31 → nearest to 30
+                "d45cw": None,  "d45pw": None,  "d45vt": None,
             },
         )
 

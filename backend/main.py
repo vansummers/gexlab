@@ -145,8 +145,8 @@ async def update_data_loop():
                         f"no data or zero spot price (spot={spot})"
                     )
 
-                # Always persist raw data first so the debug endpoint shows
-                # ingestion results even if analytics or levels crashes.
+                # Always persist raw data first so the raw metrics endpoint
+                # reflects ingestion results even if analytics or levels crashes.
                 async with _state_locks[ticker]:
                     state["data"][ticker]["raw"] = raw_data
                     state["data"][ticker]["basis"] = basis_data

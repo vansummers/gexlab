@@ -103,8 +103,7 @@
         for (let depth = 0; depth < 6; depth++) {
             if (!el || el === root) break;
 
-            // Check this element's subtree (skip if it contains our text node
-            // to avoid re-finding the label itself).
+            // Check this element's subtree for an input.
             const candidate = el.querySelector(
                 'input[type="number"], input[type="text"], textarea'
             );
@@ -178,16 +177,6 @@
     }
 
     // ─── Dialog Detection ─────────────────────────────────────────────────────
-
-    // TradingView reuses the same dialog DOM node and swaps its content, so
-    // MutationObserver (which watches for added nodes) misses it. Poll instead.
-
-    function isSettingsDialog(el) {
-        return (
-            el.textContent?.includes(INDICATOR) &&
-            el.querySelector('input[type="number"]') !== null
-        );
-    }
 
     function findOpenDialog() {
         // Locate "GexLab Levels" title text node then walk up to the container
