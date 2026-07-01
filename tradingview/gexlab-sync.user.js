@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GexLab — TradingView Auto-Sync
 // @namespace    https://gexlab.app
-// @version      1.6.0
+// @version      1.6.1
 // @description  Automatically fills GexLab key levels into the GexLab Levels indicator when you open its settings. Shows a live levels panel in the corner.
 // @author       GexLab
 // @updateURL    https://raw.githubusercontent.com/vansummers/gexlab/main/tradingview/gexlab-sync.user.js
@@ -25,6 +25,7 @@
     let lastFetch = null;
     let panel     = null;
     let ticker    = DEFAULT_TICKER;   // active chart symbol, kept in sync
+    let fillStatus = '';    // last dialog-fill result, shown in the panel
 
     // ─── Symbol Detection ─────────────────────────────────────────────────────
 
@@ -141,11 +142,13 @@
 
         // Search from document.body — the dialog container returned for
         // open/close detection is scoped too narrowly to contain every label.
+        let filled = 0;
         for (const [label, val] of floatFields) {
             if (val == null || isNaN(val)) continue;
             const input = findInputByLabel(document.body, label);
             if (input) {
                 setReactValue(input, val.toFixed(2));
+                filled++;
                 console.log(`[GexLab] Set "${label}" = ${val.toFixed(2)}`);
             } else {
                 console.warn(`[GexLab] Could not find input for "${label}"`);
@@ -157,6 +160,10 @@
             const bridgeInput = findInputByLabel(document.body, 'Bridge Payload');
             if (bridgeInput) setReactValue(bridgeInput, bridge);
         }
+
+        // Surface the outcome in the panel so no console is needed.
+        fillStatus = `filled ${filled}/${floatFields.length}`;
+        renderPanel();
 
         // Click OK to save — wait 800ms so React has time to process the events.
         setTimeout(() => {
@@ -292,7 +299,7 @@
                 <span style="color:#ab88f5;font-weight:600;text-align:right">${fmt(levels?.vannaMagnet)}</span>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid #2a2e39;padding-top:9px;margin-top:2px">
-                <span style="color:#3d4455;font-size:9px">${age}</span>
+                <span style="color:#3d4455;font-size:9px">${age}${fillStatus ? ' · ' + fillStatus : ''}</span>
                 <button id="gexlab-refresh-btn"
                     style="background:#2962ff;border:none;border-radius:5px;color:#fff;
                            padding:3px 9px;font-size:9px;font-weight:700;cursor:pointer;
