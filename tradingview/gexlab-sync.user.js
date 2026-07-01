@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GexLab - TradingView Auto-Sync
 // @namespace    https://gexlab.app
-// @version      1.7.1
+// @version      1.8.0
 // @description  Automatically fills GexLab key levels into the GexLab Levels indicator when you open its settings. Shows a live levels panel in the corner.
 // @author       GexLab
 // @updateURL    https://raw.githubusercontent.com/vansummers/gexlab/main/tradingview/gexlab-sync.user.js
@@ -83,50 +83,55 @@
         el.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
-    // Collect the dialog's editable fields in top-to-bottom visual order.
-    //
-    // Label-based matching proved unreliable (TradingView's grid layout splits
-    // labels and inputs into separate column subtrees). Instead we rely on the
-    // fixed FIELD ORDER of the GexLab Levels indicator inputs. Checkboxes (the
-    // Show-* toggles) and buttons are excluded, leaving exactly:
-    //   [Bridge Payload, Gamma Flip, Call Wall, Put Wall, Max Pain, Vanna Peak]
     // TradingView tags every settings input (numeric fields AND the Bridge
-    // Payload string field) with data-qa-id="ui-lib-Input-input". Targeting that
-    // exact signature skips checkboxes and page-level inputs entirely.
+    // Payload string field) with data-qa-id="ui-lib-Input-input". Checkboxes use
+    // a different qa-id, so this selector matches only the fields we fill.
     const FIELD_SELECTOR = 'input[data-qa-id="ui-lib-Input-input"], textarea';
 
-    function getEditableInputs(root) {
-        return [...root.querySelectorAll(FIELD_SELECTOR)]
+    // Return the currently VISIBLE settings fields, sorted top-to-bottom.
+    // Visibility is the key: TradingView leaves the dialog's field elements in the
+    // DOM after it closes but collapses them to zero size, so an existence check
+    // would latch onto stale hidden fields. Only visible fields mean a real open
+    // dialog.
+    function getVisibleFields() {
+        return [...document.querySelectorAll(FIELD_SELECTOR)]
             .filter(el => {
                 const r = el.getBoundingClientRect();
-                return r.width > 0 && r.height > 0;   // visible only
+                return r.width > 0 && r.height > 0;
             })
             .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
     }
 
+    // Identify an open GexLab Levels dialog by its Bridge Payload field, whose
+    // value is the compact JSON containing "d0cw" (true before and after we fill
+    // it). This both confirms the dialog is ours and locates the string field so
+    // the five numeric fields map cleanly. Returns { fields, bridgeIdx } or null.
+    function getGexDialogFields() {
+        const fields = getVisibleFields();
+        if (!fields.length) return null;
+        const bridgeIdx = fields.findIndex(el => {
+            const v = (el.value || '').trim();
+            return v.includes('d0cw') || v.startsWith('{');
+        });
+        if (bridgeIdx === -1) return null;   // not the GexLab dialog
+        return { fields, bridgeIdx };
+    }
+
     // --- Dialog Fill ---
 
-    function fillDialog(dialog) {
+    function fillFields() {
         if (!levels && !bridge) {
             console.warn('[GexLab] No data yet - try clicking Sync Now in the panel.');
             return;
         }
 
-        // Collect editable fields in order. Expected layout:
-        //   [0] Bridge Payload  [1] Gamma Flip  [2] Call Wall
-        //   [3] Put Wall        [4] Max Pain    [5] Vanna Peak
-        // Search the whole document (scoped by the settings-field signature) so a
-        // too-narrow dialog container can't hide the fields.
-        const inputs = getEditableInputs(document.body);
-        console.log('[GexLab] Editable inputs found:', inputs.length);
+        const gex = getGexDialogFields();
+        if (!gex) { console.warn('[GexLab] Fields vanished before fill.'); return; }
 
-        // The bridge field holds a JSON string; identify it so the five numeric
-        // fields line up even if the payload field ever moves. Fall back to the
-        // first input (its documented position).
-        let bridgeIdx = inputs.findIndex(el => (el.value || '').trim().startsWith('{'));
-        if (bridgeIdx === -1) bridgeIdx = 0;
-
-        const numeric = inputs.filter((_, i) => i !== bridgeIdx);
+        // Field order (by vertical position):
+        //   bridgeIdx -> Bridge Payload
+        //   remaining -> Gamma Flip, Call Wall, Put Wall, Max Pain, Vanna Peak
+        const numeric = gex.fields.filter((_, i) => i !== gex.bridgeIdx);
         const floatVals = levels ? [
             ['Gamma Flip', levels.gammaFlip],
             ['Call Wall',  levels.callWall],
@@ -137,99 +142,55 @@
 
         let filled = 0;
         floatVals.forEach((pair, i) => {
-            const label = pair[0], val = pair[1];
             const input = numeric[i];
+            const val = pair[1];
             if (!input || val == null || isNaN(val)) return;
             setReactValue(input, Number(val).toFixed(2));
             filled++;
-            console.log('[GexLab] Set "' + label + '" = ' + Number(val).toFixed(2));
+            console.log('[GexLab] Set "' + pair[0] + '" = ' + Number(val).toFixed(2));
         });
 
-        // Bridge payload string field
-        if (bridge && inputs[bridgeIdx]) {
-            setReactValue(inputs[bridgeIdx], bridge);
+        if (bridge && gex.fields[gex.bridgeIdx]) {
+            setReactValue(gex.fields[gex.bridgeIdx], bridge);
         }
 
-        // Surface the outcome in the panel so no console is needed.
         fillStatus = 'filled ' + filled + '/' + floatVals.length;
         renderPanel();
 
-        // Click OK to save - wait 800ms so React has time to process the events.
+        // Click the dialog's OK/Apply button (visible one) to save & persist.
         setTimeout(() => {
-            const buttons = dialog.querySelectorAll('button');
+            const buttons = [...document.querySelectorAll('button')].filter(b => {
+                const r = b.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+            });
             for (const btn of buttons) {
                 const text = btn.textContent.trim().toLowerCase();
-                if (text === 'ok' || text === 'apply') {
-                    btn.click();
-                    return;
-                }
+                if (text === 'ok' || text === 'apply') { btn.click(); return; }
             }
-            // Fallback: look for the primary action button by aria-label
-            const primary = dialog.querySelector('[data-name="submit-button"], button[type="submit"]');
-            if (primary) primary.click();
         }, 800);
     }
 
     // --- Dialog Detection ---
 
-    function findOpenDialog() {
-        // Locate "GexLab Levels" title text node then walk up to the container
-        // that holds the input fields. TradingView's dialog uses no standard
-        // role="dialog" or data-name attribute, so selector-based approaches fail.
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-            acceptNode: n =>
-                n.textContent.trim() === INDICATOR
-                    ? NodeFilter.FILTER_ACCEPT
-                    : NodeFilter.FILTER_SKIP,
-        });
-        const titleNode = walker.nextNode();
-        if (!titleNode) return null;
-
-        // Walk up until we find a container that also holds inputs.
-        let el = titleNode.parentElement;
-        while (el && el !== document.body) {
-            if (el.querySelector(FIELD_SELECTOR)) {
-                return el;
-            }
-            el = el.parentElement;
-        }
-        return null;
-    }
-
-    let _lastDialog  = null;
-    let _lastFilled  = null;
-
-    function isVisible(el) {
-        const r = el.getBoundingClientRect();
-        return r.width > 0 && r.height > 0;
-    }
-
-    // Poll every 500ms. TradingView hides the dialog node rather than removing
-    // it, so we check visibility - not just existence - to detect open/close.
+    // Poll every 500ms. A real open dialog is detected only when its VISIBLE
+    // fields (with the GexLab bridge signature) are present. `_filled` latches so
+    // we fill once per open; it resets automatically when the dialog closes and
+    // the fields disappear.
+    let _filled = false;
     setInterval(() => {
-        // Symbol switched on the chart - refetch for the new ticker immediately.
         if (detectTicker() !== ticker) {
             console.log('[GexLab] Symbol changed to ' + detectTicker() + ' - refetching.');
             refresh();
         }
 
-        const dialog = findOpenDialog();
+        const gex = getGexDialogFields();
 
-        if (!dialog || !isVisible(dialog)) {
-            if (_lastFilled) {
-                console.log('[GexLab] Dialog closed - resetting fill state.');
-                _lastDialog = null;
-                _lastFilled = null;
-            }
-            return;
-        }
+        if (!gex) { _filled = false; return; }   // dialog closed -> reset
+        if (_filled) return;                      // already filled this open
 
-        if (dialog === _lastDialog && _lastFilled) return;
-
-        console.log('[GexLab] Dialog opened - filling values...');
-        _lastDialog = dialog;
-        _lastFilled = true;
-        setTimeout(() => fillDialog(dialog), 300);
+        console.log('[GexLab] GexLab dialog open (' + gex.fields.length + ' fields) - filling...');
+        _filled = true;
+        setTimeout(fillFields, 300);
     }, 500);
 
     // --- Floating Panel ---
