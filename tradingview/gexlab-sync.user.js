@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GexLab — TradingView Auto-Sync
 // @namespace    https://gexlab.app
-// @version      1.4.0
+// @version      1.5.0
 // @description  Automatically fills GexLab key levels into the GexLab Levels indicator when you open its settings. Shows a live levels panel in the corner.
 // @author       GexLab
 // @updateURL    https://raw.githubusercontent.com/vansummers/gexlab/main/tradingview/gexlab-sync.user.js
@@ -91,8 +91,12 @@
     // Input `value` is a property, not text content, so it never pollutes the row
     // text we compare against.
     function findInputByLabel(root, labelText) {
-        const inputs = root.querySelectorAll(
-            'input[type="number"], input[type="text"], textarea'
+        // Match ALL inputs, not just type=number/text — TradingView renders its
+        // numeric fields as bare <input> with no type attribute, which a
+        // type-qualified selector silently misses. Exclude toggles/buttons.
+        const skip = new Set(['checkbox', 'radio', 'button', 'submit', 'range']);
+        const inputs = [...root.querySelectorAll('input, textarea')].filter(el =>
+            !skip.has((el.getAttribute('type') || 'text').toLowerCase())
         );
         for (const input of inputs) {
             let el = input.parentElement;
@@ -181,10 +185,10 @@
         const titleNode = walker.nextNode();
         if (!titleNode) return null;
 
-        // Walk up until we find a container that also has number/text inputs
+        // Walk up until we find a container that also holds inputs.
         let el = titleNode.parentElement;
         while (el && el !== document.body) {
-            if (el.querySelector('input[type="number"], input[type="text"], textarea')) {
+            if (el.querySelector('input, textarea')) {
                 return el;
             }
             el = el.parentElement;
