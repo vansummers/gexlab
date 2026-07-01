@@ -4,6 +4,8 @@
 // @version      1.0.0
 // @description  Automatically fills GexLab key levels into the GexLab Levels indicator when you open its settings. Shows a live levels panel in the corner.
 // @author       GexLab
+// @updateURL    https://raw.githubusercontent.com/vansummers/gexlab/main/tradingview/gexlab-sync.user.js
+// @downloadURL  https://raw.githubusercontent.com/vansummers/gexlab/main/tradingview/gexlab-sync.user.js
 // @match        https://www.tradingview.com/*
 // @grant        GM_xmlhttpRequest
 // @connect      gexlab-production.up.railway.app
