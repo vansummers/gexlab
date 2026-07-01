@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         GexLab — TradingView Auto-Sync
+// @name         GexLab - TradingView Auto-Sync
 // @namespace    https://gexlab.app
-// @version      1.6.1
+// @version      1.6.2
 // @description  Automatically fills GexLab key levels into the GexLab Levels indicator when you open its settings. Shows a live levels panel in the corner.
 // @author       GexLab
 // @updateURL    https://raw.githubusercontent.com/vansummers/gexlab/main/tradingview/gexlab-sync.user.js
@@ -16,7 +16,7 @@
 
     const API          = 'https://gexlab-production.up.railway.app';
     const INDICATOR    = 'GexLab Levels';   // must match indicator("...") in Pine
-    const REFRESH_MS   = 60_000;            // re-fetch every 60 seconds
+    const REFRESH_MS   = 60000;             // re-fetch every 60 seconds
     const TICKERS      = ['SPY', 'QQQ'];    // tickers the backend tracks
     const DEFAULT_TICKER = 'SPY';
 
@@ -27,7 +27,7 @@
     let ticker    = DEFAULT_TICKER;   // active chart symbol, kept in sync
     let fillStatus = '';    // last dialog-fill result, shown in the panel
 
-    // ─── Symbol Detection ─────────────────────────────────────────────────────
+    // --- Symbol Detection ---
 
     // Detect which tracked ticker the chart is currently showing. The tab title
     // updates live on symbol change ("SPY 746.77 ..."), so prefer it, then fall
@@ -46,7 +46,7 @@
         return DEFAULT_TICKER;
     }
 
-    // ─── Railway Fetching ─────────────────────────────────────────────────────
+    // --- Railway Fetching ---
 
     function apiFetch(path, cb) {
         GM_xmlhttpRequest({
@@ -59,17 +59,17 @@
 
     function refresh() {
         ticker = detectTicker();
-        apiFetch(`/api/metrics/analytics/${ticker}`, data => {
-            levels    = data.levels ?? null;
+        apiFetch('/api/metrics/analytics/' + ticker, data => {
+            levels    = data.levels || null;
             lastFetch = new Date();
             renderPanel();
         });
-        apiFetch(`/api/metrics/bridge/${ticker}`, data => {
-            bridge = data.payload ?? null;
+        apiFetch('/api/metrics/bridge/' + ticker, data => {
+            bridge = data.payload || null;
         });
     }
 
-    // ─── React Input Helpers ──────────────────────────────────────────────────
+    // --- React Input Helpers ---
 
     // TradingView uses React controlled inputs. To update them we must use the
     // native setter so React picks up the change via its synthetic event system.
@@ -101,7 +101,7 @@
         const lr = label.getBoundingClientRect();
         const labelMid = lr.top + lr.height / 2;
 
-        // Real editable inputs only — exclude toggles/buttons.
+        // Real editable inputs only - exclude toggles/buttons.
         const skip = new Set(['checkbox', 'radio', 'button', 'submit', 'range']);
         const inputs = [...root.querySelectorAll('input, textarea')].filter(el =>
             !skip.has((el.getAttribute('type') || 'text').toLowerCase())
@@ -123,35 +123,36 @@
         return bestDist <= 14 ? best : null;
     }
 
-    // ─── Dialog Fill ─────────────────────────────────────────────────────────
+    // --- Dialog Fill ---
 
     function fillDialog(dialog) {
         if (!levels && !bridge) {
-            console.warn('[GexLab] No data yet — try clicking Sync Now in the panel.');
+            console.warn('[GexLab] No data yet - try clicking Sync Now in the panel.');
             return;
         }
 
         // Float fields: [Pine input title, value from Railway]
         const floatFields = [
-            ['Gamma Flip', levels?.gammaFlip],
-            ['Call Wall',  levels?.callWall],
-            ['Put Wall',   levels?.putWall],
-            ['Max Pain',   levels?.maxPain],
-            ['Vanna Peak', levels?.vannaMagnet],
+            ['Gamma Flip', levels ? levels.gammaFlip   : null],
+            ['Call Wall',  levels ? levels.callWall    : null],
+            ['Put Wall',   levels ? levels.putWall     : null],
+            ['Max Pain',   levels ? levels.maxPain     : null],
+            ['Vanna Peak', levels ? levels.vannaMagnet : null],
         ];
 
-        // Search from document.body — the dialog container returned for
+        // Search from document.body - the dialog container returned for
         // open/close detection is scoped too narrowly to contain every label.
         let filled = 0;
-        for (const [label, val] of floatFields) {
+        for (const pair of floatFields) {
+            const label = pair[0], val = pair[1];
             if (val == null || isNaN(val)) continue;
             const input = findInputByLabel(document.body, label);
             if (input) {
-                setReactValue(input, val.toFixed(2));
+                setReactValue(input, Number(val).toFixed(2));
                 filled++;
-                console.log(`[GexLab] Set "${label}" = ${val.toFixed(2)}`);
+                console.log('[GexLab] Set "' + label + '" = ' + Number(val).toFixed(2));
             } else {
-                console.warn(`[GexLab] Could not find input for "${label}"`);
+                console.warn('[GexLab] Could not find input for "' + label + '"');
             }
         }
 
@@ -162,10 +163,10 @@
         }
 
         // Surface the outcome in the panel so no console is needed.
-        fillStatus = `filled ${filled}/${floatFields.length}`;
+        fillStatus = 'filled ' + filled + '/' + floatFields.length;
         renderPanel();
 
-        // Click OK to save — wait 800ms so React has time to process the events.
+        // Click OK to save - wait 800ms so React has time to process the events.
         setTimeout(() => {
             const buttons = dialog.querySelectorAll('button');
             for (const btn of buttons) {
@@ -181,7 +182,7 @@
         }, 800);
     }
 
-    // ─── Dialog Detection ─────────────────────────────────────────────────────
+    // --- Dialog Detection ---
 
     function findOpenDialog() {
         // Locate "GexLab Levels" title text node then walk up to the container
@@ -216,11 +217,11 @@
     }
 
     // Poll every 500ms. TradingView hides the dialog node rather than removing
-    // it, so we check visibility — not just existence — to detect open/close.
+    // it, so we check visibility - not just existence - to detect open/close.
     setInterval(() => {
-        // Symbol switched on the chart — refetch for the new ticker immediately.
+        // Symbol switched on the chart - refetch for the new ticker immediately.
         if (detectTicker() !== ticker) {
-            console.log(`[GexLab] Symbol changed to ${detectTicker()} — refetching.`);
+            console.log('[GexLab] Symbol changed to ' + detectTicker() + ' - refetching.');
             refresh();
         }
 
@@ -228,7 +229,7 @@
 
         if (!dialog || !isVisible(dialog)) {
             if (_lastFilled) {
-                console.log('[GexLab] Dialog closed — resetting fill state.');
+                console.log('[GexLab] Dialog closed - resetting fill state.');
                 _lastDialog = null;
                 _lastFilled = null;
             }
@@ -237,16 +238,16 @@
 
         if (dialog === _lastDialog && _lastFilled) return;
 
-        console.log('[GexLab] Dialog opened — filling values...');
+        console.log('[GexLab] Dialog opened - filling values...');
         _lastDialog = dialog;
         _lastFilled = true;
         setTimeout(() => fillDialog(dialog), 300);
     }, 500);
 
-    // ─── Floating Panel ───────────────────────────────────────────────────────
+    // --- Floating Panel ---
 
     function fmt(v) {
-        return v != null && !isNaN(v) ? '$' + Number(v).toFixed(2) : '—';
+        return v != null && !isNaN(v) ? '$' + Number(v).toFixed(2) : '-';
     }
 
     function buildPanel() {
@@ -280,34 +281,30 @@
 
         const age = lastFetch
             ? Math.round((Date.now() - lastFetch) / 1000) + 's ago'
-            : 'loading…';
+            : 'loading...';
 
-        panel.innerHTML = `
-            <div style="font-size:9px;font-weight:700;letter-spacing:.15em;color:#555f71;text-transform:uppercase;margin-bottom:9px">
-                GexLab Sync · <span style="color:#8fa0c0">${ticker}</span>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr auto;row-gap:3px;column-gap:8px;margin-bottom:10px">
-                <span style="color:#6b7280">GEX Flip</span>
-                <span style="color:#f0c040;font-weight:600;text-align:right">${fmt(levels?.gammaFlip)}</span>
-                <span style="color:#6b7280">Call Wall</span>
-                <span style="color:#26a69a;font-weight:600;text-align:right">${fmt(levels?.callWall)}</span>
-                <span style="color:#6b7280">Put Wall</span>
-                <span style="color:#ef5350;font-weight:600;text-align:right">${fmt(levels?.putWall)}</span>
-                <span style="color:#6b7280">Max Pain</span>
-                <span style="color:#c9a84c;font-weight:600;text-align:right">${fmt(levels?.maxPain)}</span>
-                <span style="color:#6b7280">Vanna</span>
-                <span style="color:#ab88f5;font-weight:600;text-align:right">${fmt(levels?.vannaMagnet)}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid #2a2e39;padding-top:9px;margin-top:2px">
-                <span style="color:#3d4455;font-size:9px">${age}${fillStatus ? ' · ' + fillStatus : ''}</span>
-                <button id="gexlab-refresh-btn"
-                    style="background:#2962ff;border:none;border-radius:5px;color:#fff;
-                           padding:3px 9px;font-size:9px;font-weight:700;cursor:pointer;
-                           letter-spacing:.05em;text-transform:uppercase">
-                    Sync Now
-                </button>
-            </div>
-        `;
+        const status = fillStatus ? ' - ' + fillStatus : '';
+
+        panel.innerHTML =
+            '<div style="font-size:9px;font-weight:700;letter-spacing:.15em;color:#555f71;text-transform:uppercase;margin-bottom:9px">' +
+                'GexLab Sync - <span style="color:#8fa0c0">' + ticker + '</span>' +
+            '</div>' +
+            '<div style="display:grid;grid-template-columns:1fr auto;row-gap:3px;column-gap:8px;margin-bottom:10px">' +
+                '<span style="color:#6b7280">GEX Flip</span>' +
+                '<span style="color:#f0c040;font-weight:600;text-align:right">' + fmt(levels ? levels.gammaFlip : null) + '</span>' +
+                '<span style="color:#6b7280">Call Wall</span>' +
+                '<span style="color:#26a69a;font-weight:600;text-align:right">' + fmt(levels ? levels.callWall : null) + '</span>' +
+                '<span style="color:#6b7280">Put Wall</span>' +
+                '<span style="color:#ef5350;font-weight:600;text-align:right">' + fmt(levels ? levels.putWall : null) + '</span>' +
+                '<span style="color:#6b7280">Max Pain</span>' +
+                '<span style="color:#c9a84c;font-weight:600;text-align:right">' + fmt(levels ? levels.maxPain : null) + '</span>' +
+                '<span style="color:#6b7280">Vanna</span>' +
+                '<span style="color:#ab88f5;font-weight:600;text-align:right">' + fmt(levels ? levels.vannaMagnet : null) + '</span>' +
+            '</div>' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid #2a2e39;padding-top:9px;margin-top:2px">' +
+                '<span style="color:#3d4455;font-size:9px">' + age + status + '</span>' +
+                '<button id="gexlab-refresh-btn" style="background:#2962ff;border:none;border-radius:5px;color:#fff;padding:3px 9px;font-size:9px;font-weight:700;cursor:pointer;letter-spacing:.05em;text-transform:uppercase">Sync Now</button>' +
+            '</div>';
 
         document.getElementById('gexlab-refresh-btn').onclick = () => {
             refresh();
@@ -317,11 +314,11 @@
     // Keep the age counter ticking without a full re-fetch.
     setInterval(() => {
         if (lastFetch) renderPanel();
-    }, 10_000);
+    }, 10000);
 
-    // ─── Init ─────────────────────────────────────────────────────────────────
+    // --- Init ---
 
-    // TradingView is a SPA — wait for the app shell to mount before injecting.
+    // TradingView is a SPA - wait for the app shell to mount before injecting.
     function init() {
         buildPanel();
         refresh();
