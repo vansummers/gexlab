@@ -151,51 +151,49 @@
 
     // ─── Dialog Detection ─────────────────────────────────────────────────────
 
-    // Returns the dialog element if the added node IS or CONTAINS the
-    // GexLab Levels settings dialog, otherwise null.
-    function findGexLabDialog(node) {
-        if (node.nodeType !== Node.ELEMENT_NODE) return null;
-
-        // Quick bail: skip nodes that don't contain our indicator name at all.
-        if (!node.textContent?.includes(INDICATOR)) return null;
-
-        // Check the node itself
-        if (isSettingsDialog(node)) return node;
-
-        // Check children matching dialog roles/attributes
-        const candidates = node.querySelectorAll(
-            '[role="dialog"], [data-name*="dialog"], [class*="dialog"]'
-        );
-        for (const c of candidates) {
-            if (isSettingsDialog(c)) return c;
-        }
-
-        return null;
-    }
+    // TradingView reuses the same dialog DOM node and swaps its content, so
+    // MutationObserver (which watches for added nodes) misses it. Poll instead.
 
     function isSettingsDialog(el) {
-        // Must contain the indicator name AND at least one number input
-        // (to distinguish from other dialogs that might mention "GexLab").
         return (
             el.textContent?.includes(INDICATOR) &&
             el.querySelector('input[type="number"]') !== null
         );
     }
 
-    const observer = new MutationObserver(mutations => {
-        for (const m of mutations) {
-            for (const node of m.addedNodes) {
-                const dialog = findGexLabDialog(node);
-                if (dialog) {
-                    // Small delay to let TradingView finish rendering all inputs.
-                    setTimeout(() => fillDialog(dialog), 400);
-                    return;
-                }
-            }
+    function findOpenDialog() {
+        // TradingView renders dialogs with role="dialog" or data-name containing "dialog"
+        const candidates = document.querySelectorAll(
+            '[role="dialog"], [data-name*="dialog"], [class*="Dialog"]'
+        );
+        for (const c of candidates) {
+            if (isSettingsDialog(c)) return c;
         }
-    });
+        return null;
+    }
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    let _lastDialog  = null;
+    let _lastFilled  = null;
+
+    // Poll every 500ms. Fill as soon as the GexLab dialog appears and hasn't
+    // been filled in this open instance yet.
+    setInterval(() => {
+        const dialog = findOpenDialog();
+
+        if (!dialog) {
+            // Dialog closed — reset so next open triggers a fresh fill.
+            _lastDialog = null;
+            _lastFilled = null;
+            return;
+        }
+
+        // Same dialog node, already filled this session — do nothing.
+        if (dialog === _lastDialog && _lastFilled) return;
+
+        _lastDialog = dialog;
+        _lastFilled = true;
+        setTimeout(() => fillDialog(dialog), 300);
+    }, 500);
 
     // ─── Floating Panel ───────────────────────────────────────────────────────
 
