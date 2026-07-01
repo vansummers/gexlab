@@ -2,7 +2,24 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, List
 
+# Walls and the vanna magnet are chosen as the strike with the largest exposure.
+# Without a proximity limit a lone far-OTM strike with a lump of open interest can
+# win, producing absurd levels (e.g. Vanna 800 / Put Wall 670 while spot is ~748).
+# Candidates are restricted to within +/-LEVEL_BAND_PCT of spot before selection.
+LEVEL_BAND_PCT = 0.04
+
 class LevelIntelligenceService:
+    @staticmethod
+    def _within_band(df: pd.DataFrame, spot_price: float, band: float = LEVEL_BAND_PCT) -> pd.DataFrame:
+        """Restrict candidate strikes to +/-band of spot. Falls back to the full
+        frame if the band would leave nothing (illiquid / edge cases)."""
+        if spot_price and spot_price > 0 and not df.empty and "strike" in df.columns:
+            lo, hi = spot_price * (1 - band), spot_price * (1 + band)
+            banded = df[(df["strike"] >= lo) & (df["strike"] <= hi)]
+            if not banded.empty:
+                return banded
+        return df
+
     @staticmethod
     def _calculate_flip_for_metric(agg_strikes: List[Dict[str, Any]], metric_key: str, spot_price: float = 0.0) -> float | None:
         df = pd.DataFrame(agg_strikes)
@@ -55,6 +72,9 @@ class LevelIntelligenceService:
         df = df[df["strike"].notna()]
         if df.empty:
             return {"callWall": None, "putWall": None, "majorWalls": None}
+
+        # Exclude far-OTM outliers before ranking.
+        df = LevelIntelligenceService._within_band(df, spot_price)
 
         if spot_price > 0:
             upside = df[df["strike"] >= spot_price]
@@ -272,13 +292,15 @@ class LevelIntelligenceService:
         vomma_levels = _greek_levels("vomex")  # vomex = vomma exposure
 
         if not df_agg.empty and 'vex' in df_agg.columns and not df_agg['vex'].isna().all():
-            vanna_magnet = float(df_agg.loc[df_agg['vex'].abs().idxmax(), 'strike'])
+            vanna_band = LevelIntelligenceService._within_band(df_agg, spot_price)
+            vanna_magnet = float(vanna_band.loc[vanna_band['vex'].abs().idxmax(), 'strike'])
         else:
             vanna_magnet = 0.0
 
         session_ceiling = walls.get("callWall")
         if not df_agg.empty and 'gex' in df_agg.columns and spot_price:
-            ceiling_candidates = df_agg[df_agg['strike'] >= spot_price]
+            banded_agg = LevelIntelligenceService._within_band(df_agg, spot_price)
+            ceiling_candidates = banded_agg[banded_agg['strike'] >= spot_price]
             if not ceiling_candidates.empty and not ceiling_candidates['gex'].isna().all():
                 session_ceiling = float(ceiling_candidates.loc[ceiling_candidates['gex'].idxmax(), 'strike'])
 
@@ -354,6 +376,9 @@ class LevelIntelligenceService:
         df = df[df["strike"].notna()]
         if df.empty:
             return {}
+
+        # Exclude far-OTM outliers before ranking.
+        df = LevelIntelligenceService._within_band(df, spot_price)
 
         if spot_price > 0:
             upside = df[df["strike"] >= spot_price]
