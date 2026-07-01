@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GexLab — TradingView Auto-Sync
 // @namespace    https://gexlab.app
-// @version      1.0.0
+// @version      1.1.0
 // @description  Automatically fills GexLab key levels into the GexLab Levels indicator when you open its settings. Shows a live levels panel in the corner.
 // @author       GexLab
 // @updateURL    https://raw.githubusercontent.com/vansummers/gexlab/main/tradingview/gexlab-sync.user.js
@@ -190,21 +190,28 @@
     let _lastDialog  = null;
     let _lastFilled  = null;
 
-    // Poll every 500ms. Fill as soon as the GexLab dialog appears and hasn't
-    // been filled in this open instance yet.
+    function isVisible(el) {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+    }
+
+    // Poll every 500ms. TradingView hides the dialog node rather than removing
+    // it, so we check visibility — not just existence — to detect open/close.
     setInterval(() => {
         const dialog = findOpenDialog();
 
-        if (!dialog) {
-            // Dialog closed — reset so next open triggers a fresh fill.
-            _lastDialog = null;
-            _lastFilled = null;
+        if (!dialog || !isVisible(dialog)) {
+            if (_lastFilled) {
+                console.log('[GexLab] Dialog closed — resetting fill state.');
+                _lastDialog = null;
+                _lastFilled = null;
+            }
             return;
         }
 
-        // Same dialog node, already filled this session — do nothing.
         if (dialog === _lastDialog && _lastFilled) return;
 
+        console.log('[GexLab] Dialog opened — filling values...');
         _lastDialog = dialog;
         _lastFilled = true;
         setTimeout(() => fillDialog(dialog), 300);
