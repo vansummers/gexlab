@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GexLab — TradingView Auto-Sync
 // @namespace    https://gexlab.app
-// @version      1.5.0
+// @version      1.6.0
 // @description  Automatically fills GexLab key levels into the GexLab Levels indicator when you open its settings. Shows a live levels panel in the corner.
 // @author       GexLab
 // @updateURL    https://raw.githubusercontent.com/vansummers/gexlab/main/tradingview/gexlab-sync.user.js
@@ -82,40 +82,44 @@
         el.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
-    // Find the input/textarea belonging to the settings row labelled `labelText`.
+    // Find the input belonging to the settings row labelled `labelText`.
     //
-    // Inverted search: rather than locating the label text (TradingView splits it
-    // across nodes / wraps it, so exact text-node matching is unreliable), we scan
-    // every input and walk UP to its row container, then read that row's text. The
-    // nearest ancestor whose visible text is just the label is the matching row.
-    // Input `value` is a property, not text content, so it never pollutes the row
-    // text we compare against.
+    // TradingView lays out its settings as a GRID: all labels live in one column
+    // subtree, all inputs in another, under a shared container. So DOM-walking from
+    // an input never reaches its own label (it bubbles into a container holding
+    // every label's text). Instead we pair by VISUAL position: locate the label
+    // element, then pick the input whose vertical center sits on the same row.
     function findInputByLabel(root, labelText) {
-        // Match ALL inputs, not just type=number/text — TradingView renders its
-        // numeric fields as bare <input> with no type attribute, which a
-        // type-qualified selector silently misses. Exclude toggles/buttons.
+        // Leaf element whose text is exactly the label (ignores tooltip-icon
+        // siblings, which live in their own child nodes).
+        const label = [...root.querySelectorAll('*')].find(
+            el => el.children.length === 0 && el.textContent.trim() === labelText
+        );
+        if (!label) return null;
+
+        const lr = label.getBoundingClientRect();
+        const labelMid = lr.top + lr.height / 2;
+
+        // Real editable inputs only — exclude toggles/buttons.
         const skip = new Set(['checkbox', 'radio', 'button', 'submit', 'range']);
         const inputs = [...root.querySelectorAll('input, textarea')].filter(el =>
             !skip.has((el.getAttribute('type') || 'text').toLowerCase())
         );
+
+        // The matching input shares the label's row: closest vertical center,
+        // and to the right of the label (inputs sit in the right-hand column).
+        let best = null, bestDist = Infinity;
         for (const input of inputs) {
-            let el = input.parentElement;
-            for (let depth = 0; depth < 6 && el && el !== root; depth++) {
-                const txt = (el.textContent || '').trim();
-                if (txt) {
-                    // Exact match, or the row text starts with the label (tolerates
-                    // a trailing tooltip glyph / stray whitespace). Nearest ancestor
-                    // wins, so we never bubble up to a container spanning many rows.
-                    if (txt === labelText || txt.startsWith(labelText)) {
-                        return input;
-                    }
-                    // Row text exists but isn't our label → this input's row, stop.
-                    break;
-                }
-                el = el.parentElement;
-            }
+            const r = input.getBoundingClientRect();
+            if (r.width === 0 || r.height === 0) continue;
+            if (r.left < lr.left) continue;                 // must be right of label
+            const dist = Math.abs((r.top + r.height / 2) - labelMid);
+            if (dist < bestDist) { bestDist = dist; best = input; }
         }
-        return null;
+
+        // Accept only if genuinely on the same row (guards against a mismatch
+        // when a label has no corresponding input).
+        return bestDist <= 14 ? best : null;
     }
 
     // ─── Dialog Fill ─────────────────────────────────────────────────────────
