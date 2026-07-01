@@ -162,12 +162,25 @@
     }
 
     function findOpenDialog() {
-        // TradingView renders dialogs with role="dialog" or data-name containing "dialog"
-        const candidates = document.querySelectorAll(
-            '[role="dialog"], [data-name*="dialog"], [class*="Dialog"]'
-        );
-        for (const c of candidates) {
-            if (isSettingsDialog(c)) return c;
+        // Locate "GexLab Levels" title text node then walk up to the container
+        // that holds the input fields. TradingView's dialog uses no standard
+        // role="dialog" or data-name attribute, so selector-based approaches fail.
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+            acceptNode: n =>
+                n.textContent.trim() === INDICATOR
+                    ? NodeFilter.FILTER_ACCEPT
+                    : NodeFilter.FILTER_SKIP,
+        });
+        const titleNode = walker.nextNode();
+        if (!titleNode) return null;
+
+        // Walk up until we find a container that also has number/text inputs
+        let el = titleNode.parentElement;
+        while (el && el !== document.body) {
+            if (el.querySelector('input[type="number"], input[type="text"], textarea')) {
+                return el;
+            }
+            el = el.parentElement;
         }
         return null;
     }
