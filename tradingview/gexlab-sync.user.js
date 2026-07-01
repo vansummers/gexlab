@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GexLab — TradingView Auto-Sync
 // @namespace    https://gexlab.app
-// @version      1.1.0
+// @version      1.2.0
 // @description  Automatically fills GexLab key levels into the GexLab Levels indicator when you open its settings. Shows a live levels panel in the corner.
 // @author       GexLab
 // @updateURL    https://raw.githubusercontent.com/vansummers/gexlab/main/tradingview/gexlab-sync.user.js
@@ -87,10 +87,10 @@
             );
             if (candidate) return candidate;
 
-            // Check the next sibling's subtree — label and input are often
-            // in adjacent siblings inside a row wrapper.
-            const sibling = el.nextElementSibling;
-            if (sibling) {
+            // Check adjacent siblings' subtrees — label and input are often
+            // in adjacent siblings inside a row wrapper (either order).
+            for (const sibling of [el.nextElementSibling, el.previousElementSibling]) {
+                if (!sibling) continue;
                 const sibCandidate = sibling.querySelector(
                     'input[type="number"], input[type="text"], textarea'
                 );
@@ -119,11 +119,14 @@
             ['Vanna Peak', levels?.vannaMagnet],
         ];
 
+        // Search from document.body — the dialog container returned for
+        // open/close detection is scoped too narrowly to contain every label.
         for (const [label, val] of floatFields) {
             if (val == null || isNaN(val)) continue;
-            const input = findInputByLabel(dialog, label);
+            const input = findInputByLabel(document.body, label);
             if (input) {
                 setReactValue(input, val.toFixed(2));
+                console.log(`[GexLab] Set "${label}" = ${val.toFixed(2)}`);
             } else {
                 console.warn(`[GexLab] Could not find input for "${label}"`);
             }
@@ -131,7 +134,7 @@
 
         // Bridge payload string field
         if (bridge) {
-            const bridgeInput = findInputByLabel(dialog, 'Bridge Payload');
+            const bridgeInput = findInputByLabel(document.body, 'Bridge Payload');
             if (bridgeInput) setReactValue(bridgeInput, bridge);
         }
 
