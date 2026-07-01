@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GexLab — TradingView Auto-Sync
 // @namespace    https://gexlab.app
-// @version      1.3.0
+// @version      1.4.0
 // @description  Automatically fills GexLab key levels into the GexLab Levels indicator when you open its settings. Shows a live levels panel in the corner.
 // @author       GexLab
 // @updateURL    https://raw.githubusercontent.com/vansummers/gexlab/main/tradingview/gexlab-sync.user.js
@@ -82,44 +82,34 @@
         el.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
-    // Find the input/textarea element whose settings row is labelled `labelText`.
-    // TradingView lays out each input as:  [label div]  [input div]  side by side
-    // inside a shared row container. We walk text nodes to find the label then
-    // search the surrounding DOM for the closest input.
+    // Find the input/textarea belonging to the settings row labelled `labelText`.
+    //
+    // Inverted search: rather than locating the label text (TradingView splits it
+    // across nodes / wraps it, so exact text-node matching is unreliable), we scan
+    // every input and walk UP to its row container, then read that row's text. The
+    // nearest ancestor whose visible text is just the label is the matching row.
+    // Input `value` is a property, not text content, so it never pollutes the row
+    // text we compare against.
     function findInputByLabel(root, labelText) {
-        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-            acceptNode: n =>
-                n.textContent.trim() === labelText
-                    ? NodeFilter.FILTER_ACCEPT
-                    : NodeFilter.FILTER_SKIP,
-        });
-
-        const textNode = walker.nextNode();
-        if (!textNode) return null;
-
-        // Walk upward from the text node, checking each level and its siblings
-        // for an input element.
-        let el = textNode.parentElement;
-        for (let depth = 0; depth < 6; depth++) {
-            if (!el || el === root) break;
-
-            // Check this element's subtree for an input.
-            const candidate = el.querySelector(
-                'input[type="number"], input[type="text"], textarea'
-            );
-            if (candidate) return candidate;
-
-            // Check adjacent siblings' subtrees — label and input are often
-            // in adjacent siblings inside a row wrapper (either order).
-            for (const sibling of [el.nextElementSibling, el.previousElementSibling]) {
-                if (!sibling) continue;
-                const sibCandidate = sibling.querySelector(
-                    'input[type="number"], input[type="text"], textarea'
-                );
-                if (sibCandidate) return sibCandidate;
+        const inputs = root.querySelectorAll(
+            'input[type="number"], input[type="text"], textarea'
+        );
+        for (const input of inputs) {
+            let el = input.parentElement;
+            for (let depth = 0; depth < 6 && el && el !== root; depth++) {
+                const txt = (el.textContent || '').trim();
+                if (txt) {
+                    // Exact match, or the row text starts with the label (tolerates
+                    // a trailing tooltip glyph / stray whitespace). Nearest ancestor
+                    // wins, so we never bubble up to a container spanning many rows.
+                    if (txt === labelText || txt.startsWith(labelText)) {
+                        return input;
+                    }
+                    // Row text exists but isn't our label → this input's row, stop.
+                    break;
+                }
+                el = el.parentElement;
             }
-
-            el = el.parentElement;
         }
         return null;
     }
