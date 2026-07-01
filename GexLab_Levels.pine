@@ -2,11 +2,13 @@
 // Paste the bridge payload from GexLab into the "Bridge Payload" input.
 // Enter the aggregated levels from the Overview page manually.
 // Re-paste the payload any time the market map updates.
+// (The GexLab TradingView Auto-Sync userscript fills all of these for you.)
 //@version=5
-indicator("GexLab Levels", overlay=true, max_lines_count=50, max_labels_count=50)
+indicator("GexLab Levels", overlay=true, max_lines_count=100, max_labels_count=100)
 
 // ─── Bridge Payload ────────────────────────────────────────────────────────
-// Paste the output of "Copy Bridge" from GexLab Studio here.
+// Paste the output of "Copy Bridge" from GexLab Studio here. Carries per-DTE
+// walls + gamma flip for 0/1/7/14/30/45 DTE.
 bridge = input.string(
      '{"d0cw":null,"d0pw":null,"d0vt":null,"d1cw":null,"d1pw":null,"d1vt":null}',
      title="Bridge Payload",
@@ -23,8 +25,12 @@ agg_vanna  = input.float(0.0,  "Vanna Peak",  group=grp_agg)
 
 // ─── DTE Display Toggles ──────────────────────────────────────────────────
 grp_dte = "DTE Packs (from Bridge Payload)"
-show_0dte = input.bool(true, "Show 0DTE Levels", group=grp_dte)
-show_1dte = input.bool(true, "Show 1DTE Levels", group=grp_dte)
+show_0dte  = input.bool(true,  "Show 0DTE Levels",  group=grp_dte)
+show_1dte  = input.bool(true,  "Show 1DTE Levels",  group=grp_dte)
+show_7dte  = input.bool(false, "Show 7DTE Levels",  group=grp_dte)
+show_14dte = input.bool(false, "Show 14DTE Levels", group=grp_dte)
+show_30dte = input.bool(false, "Show 30DTE Levels", group=grp_dte)
+show_45dte = input.bool(false, "Show 45DTE Levels", group=grp_dte)
 
 // ─── JSON Parser ──────────────────────────────────────────────────────────
 // Extracts a numeric value from a compact JSON string by key name.
@@ -44,40 +50,7 @@ parse_field(json, key) =>
                 result := str.tonumber(val_str)
     result
 
-// ─── Parse Bridge Payload ─────────────────────────────────────────────────
-d0cw = parse_field(bridge, "d0cw")
-d0pw = parse_field(bridge, "d0pw")
-d0vt = parse_field(bridge, "d0vt")
-d1cw = parse_field(bridge, "d1cw")
-d1pw = parse_field(bridge, "d1pw")
-d1vt = parse_field(bridge, "d1vt")
-
-// ─── Line State ───────────────────────────────────────────────────────────
-var line l_gflip   = na
-var line l_cwall   = na
-var line l_pwall   = na
-var line l_maxpain = na
-var line l_vanna   = na
-var line l_d0cw    = na
-var line l_d0pw    = na
-var line l_d0vt    = na
-var line l_d1cw    = na
-var line l_d1pw    = na
-var line l_d1vt    = na
-
-var label lb_gflip   = na
-var label lb_cwall   = na
-var label lb_pwall   = na
-var label lb_maxpain = na
-var label lb_vanna   = na
-var label lb_d0cw    = na
-var label lb_d0pw    = na
-var label lb_d0vt    = na
-var label lb_d1cw    = na
-var label lb_d1pw    = na
-var label lb_d1vt    = na
-
-// ─── Draw Helper ──────────────────────────────────────────────────────────
+// ─── Draw Helpers ─────────────────────────────────────────────────────────
 make_line(price, col, ls) =>
     line.new(bar_index - 100, price, bar_index, price,
          color=col, width=1, style=ls, extend=extend.right)
@@ -86,6 +59,41 @@ make_label(price, txt, col) =>
     label.new(bar_index + 2, price, txt,
          color=color.new(col, 85), textcolor=col,
          style=label.style_label_left, size=size.small)
+
+// ─── Aggregated Line State ────────────────────────────────────────────────
+var line l_gflip   = na
+var line l_cwall   = na
+var line l_pwall   = na
+var line l_maxpain = na
+var line l_vanna   = na
+
+var label lb_gflip   = na
+var label lb_cwall   = na
+var label lb_pwall   = na
+var label lb_maxpain = na
+var label lb_vanna   = na
+
+// ─── DTE Line/Label Pools ─────────────────────────────────────────────────
+// The per-DTE packs are drawn into arrays so adding DTE tiers needs no new
+// per-level state. Everything is cleared and redrawn on the last bar.
+var line[]  dte_lines  = array.new_line()
+var label[] dte_labels = array.new_label()
+
+// Draw one DTE pack (call wall / put wall / gamma flip) with a base
+// transparency that fades the further-dated tiers into the background.
+draw_dte_pack(show, label_tag, cw, pw, vt, transp, ls) =>
+    if show
+        line_t  = transp
+        label_t = math.max(transp - 20, 20)
+        if not na(cw) and cw > 0
+            array.push(dte_lines,  make_line(cw, color.new(color.teal, line_t), ls))
+            array.push(dte_labels, make_label(cw, label_tag + " CW "   + str.tostring(cw, "#.00"), color.new(color.teal, label_t)))
+        if not na(pw) and pw > 0
+            array.push(dte_lines,  make_line(pw, color.new(color.red, line_t), ls))
+            array.push(dte_labels, make_label(pw, label_tag + " PW "   + str.tostring(pw, "#.00"), color.new(color.red, label_t)))
+        if not na(vt) and vt > 0
+            array.push(dte_lines,  make_line(vt, color.new(color.yellow, line_t), ls))
+            array.push(dte_labels, make_label(vt, label_tag + " Flip " + str.tostring(vt, "#.00"), color.new(color.yellow, label_t)))
 
 // ─── Redraw on Last Bar ───────────────────────────────────────────────────
 if barstate.islast
@@ -114,34 +122,20 @@ if barstate.islast
             l_vanna   := make_line(agg_vanna,   color.purple,        line.style_dotted)
             lb_vanna  := make_label(agg_vanna,  "Vanna Peak " + str.tostring(agg_vanna, "#.00"),color.purple)
 
-    // — 0DTE levels —
-    line.delete(l_d0cw), label.delete(lb_d0cw)
-    line.delete(l_d0pw), label.delete(lb_d0pw)
-    line.delete(l_d0vt), label.delete(lb_d0vt)
+    // — Per-DTE packs — clear the pools then redraw each enabled tier —
+    if array.size(dte_lines) > 0
+        for i = 0 to array.size(dte_lines) - 1
+            line.delete(array.get(dte_lines, i))
+        array.clear(dte_lines)
+    if array.size(dte_labels) > 0
+        for i = 0 to array.size(dte_labels) - 1
+            label.delete(array.get(dte_labels, i))
+        array.clear(dte_labels)
 
-    if show_0dte
-        if not na(d0cw) and d0cw > 0
-            l_d0cw  := make_line(d0cw, color.new(color.teal, 50),   line.style_dashed)
-            lb_d0cw := make_label(d0cw,"0DTE CW " + str.tostring(d0cw, "#.00"),  color.new(color.teal, 30))
-        if not na(d0pw) and d0pw > 0
-            l_d0pw  := make_line(d0pw, color.new(color.red, 50),    line.style_dashed)
-            lb_d0pw := make_label(d0pw,"0DTE PW " + str.tostring(d0pw, "#.00"),  color.new(color.red, 30))
-        if not na(d0vt) and d0vt > 0
-            l_d0vt  := make_line(d0vt, color.new(color.yellow, 50), line.style_dashed)
-            lb_d0vt := make_label(d0vt,"0DTE Flip " + str.tostring(d0vt, "#.00"),color.new(color.yellow, 30))
-
-    // — 1DTE levels —
-    line.delete(l_d1cw), label.delete(lb_d1cw)
-    line.delete(l_d1pw), label.delete(lb_d1pw)
-    line.delete(l_d1vt), label.delete(lb_d1vt)
-
-    if show_1dte
-        if not na(d1cw) and d1cw > 0
-            l_d1cw  := make_line(d1cw, color.new(color.teal, 70),   line.style_dotted)
-            lb_d1cw := make_label(d1cw,"1DTE CW " + str.tostring(d1cw, "#.00"),  color.new(color.teal, 50))
-        if not na(d1pw) and d1pw > 0
-            l_d1pw  := make_line(d1pw, color.new(color.red, 70),    line.style_dotted)
-            lb_d1pw := make_label(d1pw,"1DTE PW " + str.tostring(d1pw, "#.00"),  color.new(color.red, 50))
-        if not na(d1vt) and d1vt > 0
-            l_d1vt  := make_line(d1vt, color.new(color.yellow, 70), line.style_dotted)
-            lb_d1vt := make_label(d1vt,"1DTE Flip " + str.tostring(d1vt, "#.00"),color.new(color.yellow, 50))
+    // Nearer expiries drawn boldest (lower transparency), further ones fade out.
+    draw_dte_pack(show_0dte,  "0DTE",  parse_field(bridge, "d0cw"),  parse_field(bridge, "d0pw"),  parse_field(bridge, "d0vt"),  50, line.style_dashed)
+    draw_dte_pack(show_1dte,  "1DTE",  parse_field(bridge, "d1cw"),  parse_field(bridge, "d1pw"),  parse_field(bridge, "d1vt"),  60, line.style_dotted)
+    draw_dte_pack(show_7dte,  "7DTE",  parse_field(bridge, "d7cw"),  parse_field(bridge, "d7pw"),  parse_field(bridge, "d7vt"),  70, line.style_dotted)
+    draw_dte_pack(show_14dte, "14DTE", parse_field(bridge, "d14cw"), parse_field(bridge, "d14pw"), parse_field(bridge, "d14vt"), 75, line.style_dotted)
+    draw_dte_pack(show_30dte, "30DTE", parse_field(bridge, "d30cw"), parse_field(bridge, "d30pw"), parse_field(bridge, "d30vt"), 80, line.style_dotted)
+    draw_dte_pack(show_45dte, "45DTE", parse_field(bridge, "d45cw"), parse_field(bridge, "d45pw"), parse_field(bridge, "d45vt"), 82, line.style_dotted)

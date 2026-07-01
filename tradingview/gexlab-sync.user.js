@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GexLab — TradingView Auto-Sync
 // @namespace    https://gexlab.app
-// @version      1.2.0
+// @version      1.3.0
 // @description  Automatically fills GexLab key levels into the GexLab Levels indicator when you open its settings. Shows a live levels panel in the corner.
 // @author       GexLab
 // @updateURL    https://raw.githubusercontent.com/vansummers/gexlab/main/tradingview/gexlab-sync.user.js
@@ -17,11 +17,33 @@
     const API          = 'https://gexlab-production.up.railway.app';
     const INDICATOR    = 'GexLab Levels';   // must match indicator("...") in Pine
     const REFRESH_MS   = 60_000;            // re-fetch every 60 seconds
+    const TICKERS      = ['SPY', 'QQQ'];    // tickers the backend tracks
+    const DEFAULT_TICKER = 'SPY';
 
     let levels    = null;   // analytics.levels from Railway
     let bridge    = null;   // bridge payload string from Railway
     let lastFetch = null;
     let panel     = null;
+    let ticker    = DEFAULT_TICKER;   // active chart symbol, kept in sync
+
+    // ─── Symbol Detection ─────────────────────────────────────────────────────
+
+    // Detect which tracked ticker the chart is currently showing. The tab title
+    // updates live on symbol change ("SPY 746.77 ..."), so prefer it, then fall
+    // back to the ?symbol= URL param. Only SPY/QQQ are tracked by the backend.
+    function detectTicker() {
+        const haystacks = [
+            document.title || '',
+            new URLSearchParams(location.search).get('symbol') || '',
+        ];
+        for (const hay of haystacks) {
+            const up = hay.toUpperCase();
+            for (const t of TICKERS) {
+                if (new RegExp('\\b' + t + '\\b').test(up)) return t;
+            }
+        }
+        return DEFAULT_TICKER;
+    }
 
     // ─── Railway Fetching ─────────────────────────────────────────────────────
 
@@ -35,12 +57,13 @@
     }
 
     function refresh() {
-        apiFetch('/api/metrics/analytics/SPY', data => {
+        ticker = detectTicker();
+        apiFetch(`/api/metrics/analytics/${ticker}`, data => {
             levels    = data.levels ?? null;
             lastFetch = new Date();
             renderPanel();
         });
-        apiFetch('/api/metrics/bridge/SPY', data => {
+        apiFetch(`/api/metrics/bridge/${ticker}`, data => {
             bridge = data.payload ?? null;
         });
     }
@@ -201,6 +224,12 @@
     // Poll every 500ms. TradingView hides the dialog node rather than removing
     // it, so we check visibility — not just existence — to detect open/close.
     setInterval(() => {
+        // Symbol switched on the chart — refetch for the new ticker immediately.
+        if (detectTicker() !== ticker) {
+            console.log(`[GexLab] Symbol changed to ${detectTicker()} — refetching.`);
+            refresh();
+        }
+
         const dialog = findOpenDialog();
 
         if (!dialog || !isVisible(dialog)) {
@@ -261,7 +290,7 @@
 
         panel.innerHTML = `
             <div style="font-size:9px;font-weight:700;letter-spacing:.15em;color:#555f71;text-transform:uppercase;margin-bottom:9px">
-                GexLab Sync
+                GexLab Sync · <span style="color:#8fa0c0">${ticker}</span>
             </div>
             <div style="display:grid;grid-template-columns:1fr auto;row-gap:3px;column-gap:8px;margin-bottom:10px">
                 <span style="color:#6b7280">GEX Flip</span>

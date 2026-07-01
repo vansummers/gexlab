@@ -193,24 +193,68 @@ class BridgeService:
     def generate_tv_payload(
         analytics_data: Dict[str, Any],
         basis_data: Dict[str, Any] | None = None,
-        ticker: str = "QQQ",
+        ticker: str = "SPY",
     ) -> str:
         """
-        Compact JSON string for TradingView — 0DTE and 1DTE walls + flip.
+        Compact JSON string for the GexLab Levels TradingView indicator.
+        Per-DTE walls + gamma flip for 0/1/7/14/30/45 DTE, in ETF price space
+        (the indicator is plotted on the SPY/QQQ ETF chart, not futures).
+
+        The two front expiries use _front_expiry_rows (guarantees two distinct
+        near-dated rows even after today's expiry rolls off). Longer-dated packs
+        pick the byDte row whose dte is closest to each target, within tolerance,
+        skipping any expiry already claimed by a nearer pack.
         """
+        levels = analytics_data.get("levels", {}) or {}
+        rows = [
+            row for row in (levels.get("byDte", []) or [])
+            if isinstance(row, dict) and isinstance(row.get("dte"), int)
+        ]
+
+        def num(value: Any) -> float | None:
+            if value is None:
+                return None
+            try:
+                f = float(value)
+            except (TypeError, ValueError):
+                return None
+            return round(f, 2) if f > 0 else None
+
+        def nearest(target: int, tol: int, exclude: set[int]) -> Dict[str, Any]:
+            best, best_diff = None, None
+            for row in rows:
+                dte = row["dte"]
+                if dte in exclude:
+                    continue
+                diff = abs(dte - target)
+                if diff <= tol and (best_diff is None or diff < best_diff):
+                    best, best_diff = row, diff
+            return best or {}
+
         front, next_expiry = (BridgeService._front_expiry_rows(analytics_data) + [{}, {}])[:2]
-        payload = {
-            "d0cw": front.get("callWall"),
-            "d0pw": front.get("putWall"),
-            "d0vt": front.get("gammaFlip"),
-            "d1cw": next_expiry.get("callWall"),
-            "d1pw": next_expiry.get("putWall"),
-            "d1vt": next_expiry.get("gammaFlip"),
+        used: set[int] = {
+            row.get("dte") for row in (front, next_expiry)
+            if isinstance(row.get("dte"), int)
         }
-        payload = {
-            key: BridgeService._convert_to_futures_price(value, basis_data, ticker)
-            for key, value in payload.items()
+
+        payload: Dict[str, Any] = {
+            "d0cw": num(front.get("callWall")),
+            "d0pw": num(front.get("putWall")),
+            "d0vt": num(front.get("gammaFlip")),
+            "d1cw": num(next_expiry.get("callWall")),
+            "d1pw": num(next_expiry.get("putWall")),
+            "d1vt": num(next_expiry.get("gammaFlip")),
         }
+
+        # Longer-dated packs: (target DTE, tolerance in days)
+        for target, tol in [(7, 3), (14, 4), (30, 6), (45, 8)]:
+            row = nearest(target, tol, used)
+            if isinstance(row.get("dte"), int):
+                used.add(row["dte"])
+            payload[f"d{target}cw"] = num(row.get("callWall"))
+            payload[f"d{target}pw"] = num(row.get("putWall"))
+            payload[f"d{target}vt"] = num(row.get("gammaFlip"))
+
         return json.dumps(payload, separators=(',', ':'))
 
     @staticmethod
