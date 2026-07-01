@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GexLab - TradingView Auto-Sync
 // @namespace    https://gexlab.app
-// @version      1.7.0
+// @version      1.7.1
 // @description  Automatically fills GexLab key levels into the GexLab Levels indicator when you open its settings. Shows a live levels panel in the corner.
 // @author       GexLab
 // @updateURL    https://raw.githubusercontent.com/vansummers/gexlab/main/tradingview/gexlab-sync.user.js
@@ -90,11 +90,14 @@
     // fixed FIELD ORDER of the GexLab Levels indicator inputs. Checkboxes (the
     // Show-* toggles) and buttons are excluded, leaving exactly:
     //   [Bridge Payload, Gamma Flip, Call Wall, Put Wall, Max Pain, Vanna Peak]
+    // TradingView tags every settings input (numeric fields AND the Bridge
+    // Payload string field) with data-qa-id="ui-lib-Input-input". Targeting that
+    // exact signature skips checkboxes and page-level inputs entirely.
+    const FIELD_SELECTOR = 'input[data-qa-id="ui-lib-Input-input"], textarea';
+
     function getEditableInputs(root) {
-        const skip = new Set(['checkbox', 'radio', 'button', 'submit', 'range']);
-        return [...root.querySelectorAll('input, textarea')]
+        return [...root.querySelectorAll(FIELD_SELECTOR)]
             .filter(el => {
-                if (skip.has((el.getAttribute('type') || 'text').toLowerCase())) return false;
                 const r = el.getBoundingClientRect();
                 return r.width > 0 && r.height > 0;   // visible only
             })
@@ -112,7 +115,9 @@
         // Collect editable fields in order. Expected layout:
         //   [0] Bridge Payload  [1] Gamma Flip  [2] Call Wall
         //   [3] Put Wall        [4] Max Pain    [5] Vanna Peak
-        const inputs = getEditableInputs(dialog);
+        // Search the whole document (scoped by the settings-field signature) so a
+        // too-narrow dialog container can't hide the fields.
+        const inputs = getEditableInputs(document.body);
         console.log('[GexLab] Editable inputs found:', inputs.length);
 
         // The bridge field holds a JSON string; identify it so the five numeric
@@ -183,7 +188,7 @@
         // Walk up until we find a container that also holds inputs.
         let el = titleNode.parentElement;
         while (el && el !== document.body) {
-            if (el.querySelector('input, textarea')) {
+            if (el.querySelector(FIELD_SELECTOR)) {
                 return el;
             }
             el = el.parentElement;
