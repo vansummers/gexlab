@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GexLab - TradingView Auto-Sync
 // @namespace    https://gexlab.app
-// @version      1.6.2
+// @version      1.7.0
 // @description  Automatically fills GexLab key levels into the GexLab Levels indicator when you open its settings. Shows a live levels panel in the corner.
 // @author       GexLab
 // @updateURL    https://raw.githubusercontent.com/vansummers/gexlab/main/tradingview/gexlab-sync.user.js
@@ -83,44 +83,22 @@
         el.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
-    // Find the input belonging to the settings row labelled `labelText`.
+    // Collect the dialog's editable fields in top-to-bottom visual order.
     //
-    // TradingView lays out its settings as a GRID: all labels live in one column
-    // subtree, all inputs in another, under a shared container. So DOM-walking from
-    // an input never reaches its own label (it bubbles into a container holding
-    // every label's text). Instead we pair by VISUAL position: locate the label
-    // element, then pick the input whose vertical center sits on the same row.
-    function findInputByLabel(root, labelText) {
-        // Leaf element whose text is exactly the label (ignores tooltip-icon
-        // siblings, which live in their own child nodes).
-        const label = [...root.querySelectorAll('*')].find(
-            el => el.children.length === 0 && el.textContent.trim() === labelText
-        );
-        if (!label) return null;
-
-        const lr = label.getBoundingClientRect();
-        const labelMid = lr.top + lr.height / 2;
-
-        // Real editable inputs only - exclude toggles/buttons.
+    // Label-based matching proved unreliable (TradingView's grid layout splits
+    // labels and inputs into separate column subtrees). Instead we rely on the
+    // fixed FIELD ORDER of the GexLab Levels indicator inputs. Checkboxes (the
+    // Show-* toggles) and buttons are excluded, leaving exactly:
+    //   [Bridge Payload, Gamma Flip, Call Wall, Put Wall, Max Pain, Vanna Peak]
+    function getEditableInputs(root) {
         const skip = new Set(['checkbox', 'radio', 'button', 'submit', 'range']);
-        const inputs = [...root.querySelectorAll('input, textarea')].filter(el =>
-            !skip.has((el.getAttribute('type') || 'text').toLowerCase())
-        );
-
-        // The matching input shares the label's row: closest vertical center,
-        // and to the right of the label (inputs sit in the right-hand column).
-        let best = null, bestDist = Infinity;
-        for (const input of inputs) {
-            const r = input.getBoundingClientRect();
-            if (r.width === 0 || r.height === 0) continue;
-            if (r.left < lr.left) continue;                 // must be right of label
-            const dist = Math.abs((r.top + r.height / 2) - labelMid);
-            if (dist < bestDist) { bestDist = dist; best = input; }
-        }
-
-        // Accept only if genuinely on the same row (guards against a mismatch
-        // when a label has no corresponding input).
-        return bestDist <= 14 ? best : null;
+        return [...root.querySelectorAll('input, textarea')]
+            .filter(el => {
+                if (skip.has((el.getAttribute('type') || 'text').toLowerCase())) return false;
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;   // visible only
+            })
+            .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
     }
 
     // --- Dialog Fill ---
@@ -131,39 +109,44 @@
             return;
         }
 
-        // Float fields: [Pine input title, value from Railway]
-        const floatFields = [
-            ['Gamma Flip', levels ? levels.gammaFlip   : null],
-            ['Call Wall',  levels ? levels.callWall    : null],
-            ['Put Wall',   levels ? levels.putWall     : null],
-            ['Max Pain',   levels ? levels.maxPain     : null],
-            ['Vanna Peak', levels ? levels.vannaMagnet : null],
-        ];
+        // Collect editable fields in order. Expected layout:
+        //   [0] Bridge Payload  [1] Gamma Flip  [2] Call Wall
+        //   [3] Put Wall        [4] Max Pain    [5] Vanna Peak
+        const inputs = getEditableInputs(dialog);
+        console.log('[GexLab] Editable inputs found:', inputs.length);
 
-        // Search from document.body - the dialog container returned for
-        // open/close detection is scoped too narrowly to contain every label.
+        // The bridge field holds a JSON string; identify it so the five numeric
+        // fields line up even if the payload field ever moves. Fall back to the
+        // first input (its documented position).
+        let bridgeIdx = inputs.findIndex(el => (el.value || '').trim().startsWith('{'));
+        if (bridgeIdx === -1) bridgeIdx = 0;
+
+        const numeric = inputs.filter((_, i) => i !== bridgeIdx);
+        const floatVals = levels ? [
+            ['Gamma Flip', levels.gammaFlip],
+            ['Call Wall',  levels.callWall],
+            ['Put Wall',   levels.putWall],
+            ['Max Pain',   levels.maxPain],
+            ['Vanna Peak', levels.vannaMagnet],
+        ] : [];
+
         let filled = 0;
-        for (const pair of floatFields) {
+        floatVals.forEach((pair, i) => {
             const label = pair[0], val = pair[1];
-            if (val == null || isNaN(val)) continue;
-            const input = findInputByLabel(document.body, label);
-            if (input) {
-                setReactValue(input, Number(val).toFixed(2));
-                filled++;
-                console.log('[GexLab] Set "' + label + '" = ' + Number(val).toFixed(2));
-            } else {
-                console.warn('[GexLab] Could not find input for "' + label + '"');
-            }
-        }
+            const input = numeric[i];
+            if (!input || val == null || isNaN(val)) return;
+            setReactValue(input, Number(val).toFixed(2));
+            filled++;
+            console.log('[GexLab] Set "' + label + '" = ' + Number(val).toFixed(2));
+        });
 
         // Bridge payload string field
-        if (bridge) {
-            const bridgeInput = findInputByLabel(document.body, 'Bridge Payload');
-            if (bridgeInput) setReactValue(bridgeInput, bridge);
+        if (bridge && inputs[bridgeIdx]) {
+            setReactValue(inputs[bridgeIdx], bridge);
         }
 
         // Surface the outcome in the panel so no console is needed.
-        fillStatus = 'filled ' + filled + '/' + floatFields.length;
+        fillStatus = 'filled ' + filled + '/' + floatVals.length;
         renderPanel();
 
         // Click OK to save - wait 800ms so React has time to process the events.
