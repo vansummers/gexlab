@@ -1,8 +1,9 @@
 // GexLab Levels Indicator
-// Paste the bridge payload from GexLab into the "Bridge Payload" input.
-// Enter the aggregated levels from the Overview page manually.
-// Re-paste the payload any time the market map updates.
-// (The GexLab TradingView Auto-Sync userscript fills all of these for you.)
+// The GexLab TradingView Auto-Sync userscript fills every input automatically
+// (aggregated levels + bridge payload) whenever you open this indicator's
+// settings, and refreshes them live.
+// Manual fallback (no userscript): paste the "Copy Bridge" output into the
+// Bridge Payload field and enter the aggregated levels from the Overview page.
 //@version=5
 indicator("GexLab Levels", overlay=true, max_lines_count=100, max_labels_count=100)
 
